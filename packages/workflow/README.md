@@ -75,6 +75,29 @@ Messages are stored in the encoding they arrive in. JSON bodies land in the `pay
 
 Migration `002.do.sql` adds `payload_bytes` + `payload_encoding` columns and an XOR constraint (exactly one of `payload` / `payload_bytes` per row). The undo migration refuses to run while any `payload_encoding = 'cbor'` rows exist — drain the queue before downgrading.
 
+### Upgrade risk (WUR — arXiv:2607.13617)
+
+Telemetry-driven upgrade risk scoring for in-flight runs when moving from deployment version V₁ to V₂. No dry-run or sandbox: only static step graphs plus protocol telemetry (runs + events).
+
+| Method | Path | Description |
+|---|---|---|
+| `POST` | `/upgrade-risk` | Score in-flight runs for `deploymentId` using DB telemetry + supplied `g1`/`g2` graphs |
+| `POST` | `/api/v1/upgrade-risk/analyze` | Pure analyzer (caller supplies `history` + `inFlight`; no DB) |
+
+Request body (app-scoped):
+
+```json
+{
+  "g1": { "sites": [...], "edges": [...] },
+  "g2": { "sites": [...], "edges": [...] },
+  "deploymentId": "dep-v1",
+  "workflowName": "orderFlow",
+  "options": { "tauLo": 0.1, "tauHi": 0.5, "alpha": 1, "exactRegime": true }
+}
+```
+
+Response partitions each run into **migrate** / **review** / **pin** with per-run `backwardRisk`, `forwardRisk`, and `wur` scores. Pure library: `import { analyzeUpgradeRisk } from '@platformatic/workflow/lib/wur'`.
+
 ### Admin (requires admin service account)
 
 | Method | Path | Description |

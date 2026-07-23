@@ -9,7 +9,8 @@ services:
     ports:
       - '127.0.0.1:5434:5432'
     volumes:
-      - pgdata:/var/lib/postgresql/data
+      # Postgres 18+ expects the volume at /var/lib/postgresql (not .../data)
+      - pgdata:/var/lib/postgresql
     healthcheck:
       test: ['CMD-SHELL', 'pg_isready -U wf -d workflow']
       interval: 2s
