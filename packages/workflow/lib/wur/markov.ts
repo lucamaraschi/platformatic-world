@@ -2,7 +2,7 @@
  * Empirical control-flow Markov chain and hitting probabilities (Defs 5.2–5.3).
  */
 import type { StepGraph } from './types.ts'
-import { topologicalOrder } from './graph.ts'
+import { topologicalOrder } from './sp.ts'
 
 export type TransitionCounts = Map<string, Map<string, number>>
 

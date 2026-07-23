@@ -19,6 +19,7 @@ import {
 
 function decodeEventData (buf: Buffer | null): unknown {
   if (buf === null) return undefined
+  // Prefer structured hydration (Def 4.3); falls back to opaque for devalue/cbor
   if (buf[0] === 0x7b || buf[0] === 0x5b || buf[0] === 0x22) {
     try {
       return JSON.parse(buf.toString('utf-8'))
@@ -26,7 +27,6 @@ function decodeEventData (buf: Buffer | null): unknown {
       // fall through
     }
   }
-  // Opaque binary (devalue/cbor) — return base64 placeholder; field checks → unk
   return { __opaque: true, base64: buf.toString('base64') }
 }
 

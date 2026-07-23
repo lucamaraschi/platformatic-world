@@ -4,14 +4,12 @@
 import type { RunRisk, VerdictClass } from './types.ts'
 
 /**
- * Threshold policy from the paper:
- *
+ * Threshold policy:
  *   R_b = 0 ∧ α R_f < τ_lo           → migrate
  *   R_b = 0 ∧ α R_f ∈ [τ_lo, τ_hi]   → review
  *   R_b > 0 ∨ α R_f > τ_hi           → pin
  *
- * Runs whose credible interval straddles a threshold are classified by the
- * interval upper bound (pessimistic) when interval is provided.
+ * When wurUpper is set (CI upper bound), classify pessimistically.
  */
 export function classifyVerdict (
   rb: number,
@@ -21,21 +19,18 @@ export function classifyVerdict (
   tauHi = 0.5,
   wurUpper?: number
 ): VerdictClass {
-  const arb = alpha * rf
-  // Hard pin on any backward risk
   if (rb > 0) return 'pin'
   if (wurUpper !== undefined) {
-    // Interval-based: use upper bound pessimistically
     if (wurUpper < tauLo) return 'migrate'
     if (wurUpper <= tauHi) return 'review'
     return 'pin'
   }
+  const arb = alpha * rf
   if (arb < tauLo) return 'migrate'
   if (arb <= tauHi) return 'review'
   return 'pin'
 }
 
-/** Rank review-class runs by expected loss (descending). */
 export function rankReview (runs: RunRisk[]): RunRisk[] {
   return runs
     .filter(r => r.verdict === 'review')
@@ -56,4 +51,26 @@ export function partitionByVerdict (runs: RunRisk[]): {
     else pin.push(r.runId)
   }
   return { migrate, review, pin }
+}
+
+/**
+ * Label-instability review (Remark 10.6): runs whose optimal label flips
+ * across posterior partition draws.
+ */
+export function labelInstabilityReview (
+  drawPartitions: Array<{ migrate: string[], pin: string[] }>,
+  runIds: string[]
+): string[] {
+  if (drawPartitions.length === 0) return []
+  const review: string[] = []
+  for (const id of runIds) {
+    let mig = 0
+    let pin = 0
+    for (const p of drawPartitions) {
+      if (p.migrate.includes(id)) mig++
+      else if (p.pin.includes(id)) pin++
+    }
+    if (mig > 0 && pin > 0) review.push(id)
+  }
+  return review
 }

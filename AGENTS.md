@@ -63,7 +63,7 @@ Fastify 5 app built with `@fastify/autoload` loading plugins from `plugins/` dir
 
 Key components:
 - **`plugins/`** — One file per API domain (events, runs, steps, hooks, streams, queue, encryption, handlers, draining, versions, dead-letters, quotas, metrics, health, apps, wur)
-- **`lib/wur/`** — Workflow Upgrade Risk model (arXiv:2607.13617): exact backward rehydration risk + probabilistic forward risk → migrate/review/pin partition
+- **`lib/wur/`** — Workflow Upgrade Risk (arXiv:2607.13617) full pipeline: SP graphs + trace ≡_I, matching μ, demand lattice, R_b/R_f/WUR + MC CI, coupling min-cut, oracle/fidelity tests. See `lib/wur/README.md`.
 - **`lib/db.ts`** — pg.Pool + Postgrator migrations. The `decorateDb()` function is called on the root app (not inside a plugin) so `app.pg` is available everywhere
 - **`lib/auth/`** — Auth plugin using `Symbol.for('skip-override')` to break Fastify encapsulation, making its `onRequest` hook apply to sibling plugins
 - **`queue/`** — Queue router (deployment-aware routing), HTTP dispatcher, background poller (deferred delivery, retries, orphan detection)

@@ -1,34 +1,41 @@
 /**
- * Compatibility lattice and payload validation (Defs 4.3–4.4).
+ * Compatibility lattice helpers and payload validation (Defs 4.3–4.4).
  */
+import { asRecord, hydrateEventData } from './hydrate.ts'
+
 export type ContractVerdict = 'sat' | 'vio' | 'unk'
 
 /**
  * Validate a hydrated payload against demanded fields (exact regime).
- * Missing required field → vio; non-object / uninspectable → unk.
  */
 export function validatePayload (
   payload: unknown,
   demandFields: string[]
 ): { verdict: ContractVerdict, missing: string[] } {
   if (!demandFields.length) return { verdict: 'sat', missing: [] }
-  if (payload === null || payload === undefined) {
+  const h = hydrateEventData(payload)
+  if (h.kind === 'null') {
     return { verdict: 'vio', missing: [...demandFields] }
   }
-  if (typeof payload !== 'object' || Array.isArray(payload)) {
-    // Non-record payloads: cannot check field presence soundly
+  if (h.kind === 'opaque' || h.kind === 'map' || h.kind === 'date' ||
+      h.kind === 'set' || h.kind === 'array' || h.kind === 'unknown') {
     return { verdict: 'unk', missing: [] }
   }
-  const obj = payload as Record<string, unknown>
+  const rec = asRecord(h)
+  if (!rec) {
+    if (payload === null || payload === undefined) {
+      return { verdict: 'vio', missing: [...demandFields] }
+    }
+    if (typeof payload !== 'object' || Array.isArray(payload)) {
+      return { verdict: 'unk', missing: [] }
+    }
+  }
+  const obj = rec ?? (payload as Record<string, unknown>)
   const missing = demandFields.filter(f => !(f in obj) || obj[f] === undefined)
   if (missing.length) return { verdict: 'vio', missing }
   return { verdict: 'sat', missing: [] }
 }
 
-/**
- * Field-presence frequency over a set of payloads (distributional regime).
- * Returns freq(field) ∈ [0,1].
- */
 export function fieldPresenceFrequencies (
   payloads: unknown[],
   fields: string[]
@@ -42,29 +49,22 @@ export function fieldPresenceFrequencies (
     let present = 0
     let inspectable = 0
     for (const p of payloads) {
-      if (p !== null && typeof p === 'object' && !Array.isArray(p)) {
-        inspectable++
-        if (f in (p as Record<string, unknown>) &&
-            (p as Record<string, unknown>)[f] !== undefined) {
-          present++
-        }
-      }
+      const v = validatePayload(p, [f])
+      if (v.verdict === 'unk') continue
+      inspectable++
+      if (v.verdict === 'sat') present++
     }
     freq.set(f, inspectable === 0 ? 0 : present / inspectable)
   }
   return freq
 }
 
-/**
- * Distributional interface incompatibility ρ_I (Eq 2):
- * mass of payloads missing any demanded field = 1 − min_f freq(f).
- */
 export function distributionalInterfaceRisk (
   payloads: unknown[],
   demandFields: string[]
 ): number {
   if (!demandFields.length) return 0
-  if (!payloads.length) return 1 // no telemetry → full uncertainty handled by Beta prior
+  if (!payloads.length) return 1
   const freq = fieldPresenceFrequencies(payloads, demandFields)
   let minFreq = 1
   for (const f of demandFields) {
@@ -73,27 +73,19 @@ export function distributionalInterfaceRisk (
   return clamp01(1 - minFreq)
 }
 
-/**
- * Confidence-weighted log-odds pooling across axes (Eq 8).
- * Deterministic axes (ρ ∈ {0,1} with certainty) use weight Infinity.
- */
 export function poolLogOdds (
   axes: Array<{ rho: number, weight: number }>
 ): number {
-  // Certain violation forces ρ = 1
   for (const a of axes) {
-    if (a.rho >= 1 && !Number.isFinite(a.weight)) return 1
-    if (a.rho >= 1 && a.weight === Infinity) return 1
+    if (a.rho >= 1 && (!Number.isFinite(a.weight) || a.weight === Infinity)) return 1
   }
   let num = 0
   let den = 0
   for (const a of axes) {
     if (a.weight === 0) continue
     if (!Number.isFinite(a.weight)) {
-      // infinite weight: dominates unless ρ = 0
       if (a.rho >= 1) return 1
-      if (a.rho <= 0) continue // certain safety on this axis
-      // treat as very large finite weight
+      if (a.rho <= 0) continue
       const w = 1e9
       const lo = logit(clamp01(a.rho, 1e-9, 1 - 1e-9))
       num += w * lo
@@ -122,17 +114,10 @@ export function clamp01 (x: number, lo = 0, hi = 1): number {
   return Math.max(lo, Math.min(hi, x))
 }
 
-/**
- * Beta posterior mean for interface risk given m violations out of n.
- * Prior Beta(a,b); posterior mean (m+a)/(n+a+b).
- */
 export function betaMean (m: number, n: number, a = 1, b = 1): number {
   return (m + a) / (n + a + b)
 }
 
-/**
- * Sample from Beta(a,b) via Gamma ratio (Marsaglia-style simple method).
- */
 export function sampleBeta (a: number, b: number, rng: () => number = Math.random): number {
   const x = sampleGamma(a, rng)
   const y = sampleGamma(b, rng)
@@ -140,7 +125,6 @@ export function sampleBeta (a: number, b: number, rng: () => number = Math.rando
   return s === 0 ? 0.5 : x / s
 }
 
-/** Marsaglia and Tsang method for Gamma(shape, 1), shape >= 1; boost for < 1. */
 function sampleGamma (shape: number, rng: () => number): number {
   if (shape < 1) {
     const u = rng()
@@ -163,7 +147,6 @@ function sampleGamma (shape: number, rng: () => number): number {
 }
 
 function gaussian (rng: () => number): number {
-  // Box-Muller
   let u = 0
   let v = 0
   while (u === 0) u = rng()

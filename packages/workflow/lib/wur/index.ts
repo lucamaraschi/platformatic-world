@@ -2,8 +2,7 @@
  * Workflow Upgrade Risk (WUR) — arXiv:2607.13617
  *
  * Telemetry-driven model for quantifying upgrade risk in durable workflow
- * execution. World-agnostic: consumes only step graphs and protocol telemetry
- * (runs.list + events.list), never executes workflow code.
+ * execution. World-agnostic: consumes step graphs + protocol telemetry only.
  */
 
 export type {
@@ -31,6 +30,11 @@ export {
   linearSequence,
   matchGraphs,
   topologicalOrder,
+  parallelGraph,
+  independencePairs,
+  canonicalNormalForm,
+  traceEquivalent,
+  prefixHash,
 } from './graph.ts'
 
 export {
@@ -65,6 +69,7 @@ export {
   classifyVerdict,
   partitionByVerdict,
   rankReview,
+  labelInstabilityReview,
 } from './policy.ts'
 
 export {
@@ -80,7 +85,51 @@ export {
   extractOccurrences,
   hydratePayload,
   mapOccurrencesToSites,
+  recordHasFields,
 } from './telemetry.ts'
 
-export { analyzeUpgradeRisk, analyzeWithChanges } from './analyze.ts'
+export { hydrateEventData, asRecord, hydrateToValue } from './hydrate.ts'
+export type { HydratedValue, HydratedKind } from './hydrate.ts'
+
+export {
+  analyzeUpgradeRisk,
+  analyzeWithChanges,
+} from './analyze.ts'
 export type { AnalyzeInput } from './analyze.ts'
+
+export {
+  estimateSeverity,
+  collectRetryStats,
+  monteCarloWur,
+} from './estimate.ts'
+
+export {
+  buildCouplingGraph,
+  mixedWindowPenalty,
+  estimateEventRate,
+  channelInterfaceRisk,
+} from './channels.ts'
+
+export {
+  oracleReplay,
+  oracleUnsafe,
+  eventsFromPath,
+} from './oracle.ts'
+
+export {
+  manifestToGraph,
+  graphToManifest,
+  outOfScopeWarnings,
+} from './static/extract.ts'
+export type { GraphManifest } from './static/extract.ts'
+
+export {
+  latticeCompare,
+  fieldsToSchema,
+  coversDemand,
+} from './lattice.ts'
+
+export {
+  certainlyPrecedes,
+  invocationGateOpen,
+} from './demand.ts'

@@ -6,15 +6,20 @@ import {
   clamp01,
   distributionalInterfaceRisk,
   poolLogOdds,
-  validatePayload,
 } from './contracts.ts'
-import { isPrefixValid, topologicalOrder } from './graph.ts'
 import {
-  allHittingProbabilities,
-  countTransitions,
-  transitionMatrix,
-  type TransitionCounts,
-} from './markov.ts'
+  estimateSeverity,
+  collectRetryStats,
+  monteCarloWur,
+  pointTransitionMatrix,
+  hittingFromP,
+} from './estimate.ts'
+import { isPrefixValid } from './prefix.ts'
+import { combineWur } from './risk-core.ts'
+import { topologicalOrder } from './sp.ts'
+import { prefixHash } from './trace.ts'
+import { recordHasFields } from './telemetry.ts'
+import { classifyVerdict } from './policy.ts'
 import type {
   AnalyzeOptions,
   ChangedSite,
@@ -25,7 +30,8 @@ import type {
   StepGraph,
   VerdictClass,
 } from './types.ts'
-import { classifyVerdict } from './policy.ts'
+
+export { combineWur } from './risk-core.ts'
 
 export interface SiteIncompatibility {
   siteId: string
@@ -41,17 +47,16 @@ export interface SiteIncompatibility {
   producerSiteId?: string
   axis: ChangedSite['axis']
   reason: string
+  insertAfter?: string | null
+  unsatisfiable?: boolean
 }
 
-/**
- * Compute per-site incompatibility ρ from change set + telemetry (Eqs 1–3, 8).
- */
 export function siteIncompatibilities (
   changes: ChangedSite[],
   historyPayloads: Map<string, unknown[]>,
-  betaPrior: [number, number] = [1, 1]
+  betaPrior: [number, number] = [1, 1],
+  severityBySite: Map<string, number> = new Map()
 ): SiteIncompatibility[] {
-  // Group by siteId
   const bySite = new Map<string, ChangedSite[]>()
   for (const c of changes) {
     if (!bySite.has(c.siteId)) bySite.set(c.siteId, [])
@@ -66,15 +71,18 @@ export function siteIncompatibilities (
     let weightP = 0
     let weightI = 1
     let weightM = 0
-    let severity = 0
+    let severity = severityBySite.get(siteId) ?? 0
     let demandFields: string[] | undefined
     let producerSiteId: string | undefined
-    // Protocol dominates; otherwise prefer interface over migration for labeling
+    let insertAfter: string | null | undefined
+    let unsatisfiable = false
     let primaryAxis: ChangedSite['axis'] = list[0]?.axis ?? 'protocol'
     const reason = list.map(c => c.reason).join('; ')
 
     for (const c of list) {
       severity = Math.max(severity, c.severity ?? 1)
+      if (c.insertAfter !== undefined) insertAfter = c.insertAfter
+      if (c.unsatisfiable) unsatisfiable = true
       if (c.axis === 'protocol') {
         rhoP = 1
         weightP = Infinity
@@ -88,17 +96,14 @@ export function siteIncompatibilities (
         producerSiteId = c.producerSiteId ?? siteId
         const payloads = historyPayloads.get(producerSiteId) ?? []
         if (demandFields?.length) {
-          // Distributional estimate; exact regime overrides per-run later
           const [a, b] = betaPrior
           if (payloads.length === 0) {
-            rhoI = betaMean(0, 0, a, b) // prior mean 0.5 with weak weight
+            rhoI = betaMean(0, 0, a, b)
             weightI = a + b
           } else {
             const dist = distributionalInterfaceRisk(payloads, demandFields)
-            // interpret as m = dist * n violations
             const n = payloads.length
-            const m = dist * n
-            rhoI = Math.max(rhoI, betaMean(m, n, a, b))
+            rhoI = Math.max(rhoI, betaMean(dist * n, n, a, b))
             weightI = n + a + b
           }
         }
@@ -126,16 +131,15 @@ export function siteIncompatibilities (
       producerSiteId,
       axis: primaryAxis,
       reason,
+      insertAfter,
+      unsatisfiable,
     })
   }
   return out
 }
 
 /**
- * Backward risk R_b(r) (Definition 5.1 / Eq 4).
- *
- * In exact regime, ρ_I collapses to indicators over the run's recorded payloads.
- * Protocol membership (prefix validity) is a hard gate.
+ * Backward risk R_b (Eq 4) with invocation-time store and k+1 interface product.
  */
 export function backwardRisk (
   prefix: PathPrefix,
@@ -143,51 +147,61 @@ export function backwardRisk (
   g2: StepGraph,
   matching: Matching,
   siteRho: SiteIncompatibility[],
-  options: { exactRegime?: boolean } = {}
+  options: { exactRegime?: boolean, unkMode?: 'uninformative' | 'pessimistic' } = {}
 ): { rb: number, prefixValid: boolean, reasons: string[] } {
   const exact = options.exactRegime !== false
+  const unkMode = options.unkMode ?? 'uninformative'
   const reasons: string[] = []
-  const validity = isPrefixValid(prefix.siteIds, g1, g2, matching)
+  const validity = isPrefixValid(
+    prefix.siteIds,
+    g1,
+    g2,
+    matching,
+    prefix.correlationIds
+  )
   if (!validity.valid) {
     reasons.push(validity.reason ?? 'prefix invalid under μ')
     return { rb: 1, prefixValid: false, reasons }
   }
 
-  // Sites in product: prefix sites + frontier (k+1 for interface)
-  const sitesForI = [...prefix.siteIds]
-  if (prefix.frontier) sitesForI.push(prefix.frontier)
-  const sitesForM = [...prefix.siteIds]
-
-  const rhoBySite = new Map(siteRho.map(s => [s.siteId, s]))
-
   let survI = 1
   let survM = 1
 
-  // Interface product over prefix sites + frontier consumer (Eq 4: i=1..k+1).
-  // A demand on consumer c is a backward fault only when c is already in the
-  // prefix or is the frontier *and* the producer payload is recorded and bad.
   const ifaceChanges = siteRho.filter(s => s.axis === 'interface' && s.demandFields?.length)
   for (const s of ifaceChanges) {
+    if (s.unsatisfiable) {
+      // Gate: only if consumer is invoked during rehydration
+      const consumer = s.siteId
+      const inPrefix = prefix.siteIds.includes(consumer)
+      const isFrontier = prefix.frontier === consumer
+      if (inPrefix || isFrontier) {
+        survI = 0
+        reasons.push(`unsatisfiable demand at ${consumer}`)
+      }
+      continue
+    }
+
     const consumer = s.siteId
     const inPrefix = prefix.siteIds.includes(consumer)
     const isFrontier = prefix.frontier === consumer
-    if (!inPrefix && !isFrontier) continue // purely forward
+    if (!inPrefix && !isFrontier) continue
 
     let rhoI = s.rhoI
     if (exact) {
       const prodId = s.producerSiteId ?? consumer
-      const payload = prefix.payloads.get(prodId)
+      // Invocation-time store for this consumer
+      const store = prefix.invocationStore.get(consumer) ?? prefix.payloads
+      const payload = store.get(prodId) ?? prefix.payloads.get(prodId)
       if (payload === undefined) {
-        // Producer not in prefix — not a rehydration fault yet
         rhoI = 0
       } else {
-        const v = validatePayload(payload, s.demandFields!)
-        if (v.verdict === 'vio') {
-          rhoI = 1
-          reasons.push(`payload at ${prodId} missing: ${v.missing.join(', ')}`)
-        } else if (v.verdict === 'unk') {
-          rhoI = Math.max(rhoI, 0.5)
+        const check = recordHasFields(payload, s.demandFields!)
+        if (check.unk) {
+          rhoI = unkMode === 'pessimistic' ? 1 : 0.5
           reasons.push(`uninspectable payload at ${prodId}`)
+        } else if (!check.ok) {
+          rhoI = 1
+          reasons.push(`payload at ${prodId} missing: ${check.missing.join(', ')}`)
         } else {
           rhoI = 0
         }
@@ -196,92 +210,82 @@ export function backwardRisk (
     survI *= (1 - clamp01(rhoI))
   }
 
-  // Residual non-interface site rho for sites in prefix (migration-dominated path)
-  for (const sid of sitesForI) {
-    const info = rhoBySite.get(sid)
-    if (!info || info.axis === 'interface') continue
-    if (info.rhoI > 0) survI *= (1 - clamp01(info.rhoI))
+  for (const s of siteRho) {
+    if (s.axis !== 'migration') continue
+    if (prefix.siteIds.includes(s.siteId)) {
+      survM *= (1 - clamp01(s.rhoM))
+      if (s.rhoM > 0) reasons.push(`migration risk at ${s.siteId}`)
+    }
   }
-
-  for (const sid of sitesForM) {
-    const s = rhoBySite.get(sid)
-    if (!s) continue
-    survM *= (1 - clamp01(s.rhoM))
-    if (s.rhoM > 0) reasons.push(`migration risk at ${sid}`)
-  }
-
-  // Protocol axis already gated by prefix validity; ρ_P on matched prefix sites
-  // that are themselves in Δ_P would have failed validity. Residual ρ_P = 0 here.
 
   const rb = clamp01(1 - survI * survM)
   return { rb, prefixValid: true, reasons }
 }
 
 /**
- * Forward risk R_f(r) (Definition 5.4 / Eq 6).
- * R_f = 1 − ∏_{v ∈ Δ} (1 − sev(v) · h_v(φ_r))
- *
- * Exact interface regime: when the producer payload is already recorded, the
- * incompatibility factor collapses to an indicator and multiplies the hitting
- * probability of the *consumer* (worked example §9.1: r2 vs r3).
+ * Forward risk R_f (Eq 6) including G2-insert hazards via insertAfter anchors.
  */
 export function forwardRisk (
   frontier: string | null,
   siteRho: SiteIncompatibility[],
   hitting: Map<string, Map<string, number>>,
   prefix: PathPrefix,
-  options: { exactRegime?: boolean } = {}
+  options: { exactRegime?: boolean, unkMode?: 'uninformative' | 'pessimistic' } = {}
 ): { rf: number, reasons: string[] } {
   const exact = options.exactRegime !== false
+  const unkMode = options.unkMode ?? 'uninformative'
   const reasons: string[] = []
-  if (!frontier) {
-    // Completed / no pending work: no remaining path under V2 for forward exposure
-    // (backward product already covered full prefix including final consumer).
-    return { rf: 0, reasons }
-  }
+  if (!frontier) return { rf: 0, reasons }
 
   let survival = 1
   for (const s of siteRho) {
     let sev = s.severity
     let h = hitting.get(s.siteId)?.get(frontier) ?? 0
 
+    // G2-only inserts: hazard if we pass the insert anchor
+    if (s.axis === 'protocol' && s.insertAfter !== undefined) {
+      const anchor = s.insertAfter
+      if (anchor === null) {
+        // insert at head — if we already have any prefix, R_b handled; else h=1
+        h = prefix.siteIds.length === 0 ? 1 : 0
+      } else if (prefix.siteIds.includes(anchor) || frontier === anchor) {
+        // past or at anchor → will hit insertion on remaining path
+        h = 1
+      } else {
+        h = hitting.get(anchor)?.get(frontier) ?? 0
+      }
+      sev = s.severity
+    }
+
     if (s.axis === 'interface' && s.demandFields?.length) {
       const prodId = s.producerSiteId ?? s.siteId
       const payload = prefix.payloads.get(prodId)
-
       if (exact && payload !== undefined) {
-        const v = validatePayload(payload, s.demandFields)
-        if (v.verdict === 'vio') {
-          // Exact future fault if consumer is reachable from frontier
+        const check = recordHasFields(payload, s.demandFields)
+        if (!check.ok && !check.unk) {
           sev = 1
           h = hitting.get(s.siteId)?.get(frontier) ?? 0
-          // If consumer is the frontier itself, hit probability is 1
           if (s.siteId === frontier) h = 1
           if (h > 0) {
             reasons.push(
-              `exact interface violation on recorded ${prodId}: missing ${v.missing.join(', ')}`
+              `exact interface violation on recorded ${prodId}: missing ${check.missing.join(', ')}`
             )
           }
-        } else if (v.verdict === 'sat') {
-          // This run's recorded producer satisfies the new demand
+        } else if (check.ok) {
           sev = 0
           h = 0
-        } else {
-          // unk — keep distributional sev/h
+        } else if (check.unk) {
+          sev = unkMode === 'pessimistic' ? 1 : Math.max(sev * 0.5, s.rhoI)
           reasons.push(`uninspectable payload at ${prodId}`)
         }
       } else if (exact && payload === undefined) {
-        // Producer not yet executed: use distributional ρ as severity factor
         sev = s.rhoI > 0 ? s.rhoI : s.severity
         h = hitting.get(s.siteId)?.get(frontier) ?? 0
       }
     }
 
-    if (s.axis === 'protocol') {
+    if (s.axis === 'protocol' && s.insertAfter === undefined) {
       h = hitting.get(s.siteId)?.get(frontier) ?? 0
-      // Deleted sites: h from frontier if still on remaining path.
-      // Inserted sites live only in G2 — not in G1 hitting map (h=0 here);
-      // prefix validity already gates ordinal shifts.
     }
 
     const hazard = clamp01(sev * h)
@@ -296,22 +300,12 @@ export function forwardRisk (
   return { rf: clamp01(1 - survival), reasons }
 }
 
-/**
- * WUR(r) = 1 − (1 − R_b)(1 − α R_f) (Definition 5.5).
- */
-export function combineWur (rb: number, rf: number, alpha = 1): number {
-  return clamp01(1 - (1 - rb) * (1 - alpha * rf))
-}
-
 export interface ScoredRun {
   run: ProtocolRun
   prefix: PathPrefix
   risk: RunRisk
 }
 
-/**
- * Score all in-flight runs given graphs, matching, and history paths.
- */
 export function scoreRuns (
   g1: StepGraph,
   g2: StepGraph,
@@ -321,7 +315,8 @@ export function scoreRuns (
   historyCompleted: boolean[],
   historyPayloads: Map<string, unknown[]>,
   inFlight: Array<{ run: ProtocolRun, prefix: PathPrefix }>,
-  options: AnalyzeOptions = {}
+  options: AnalyzeOptions = {},
+  allRunsForRetry: ProtocolRun[] = []
 ): ScoredRun[] {
   const alpha = options.alpha ?? 1
   const tauLo = options.tauLo ?? 0.1
@@ -329,24 +324,57 @@ export function scoreRuns (
   const betaPrior = options.betaPrior ?? [1, 1]
   const exact = options.exactRegime !== false
   const dirichletAlpha = options.dirichletAlpha ?? 1
+  const unkMode = options.unkMode ?? 'uninformative'
+  const classPrior = options.classSeverityPrior ?? 0.5
 
-  const siteRho = siteIncompatibilities(changes, historyPayloads, betaPrior)
-  const counts = countTransitions(historyPaths, historyCompleted)
-  const P = transitionMatrix(counts, g1, dirichletAlpha)
+  // Severity from retry telemetry
+  const retryStats = collectRetryStats([...allRunsForRetry, ...inFlight.map(x => x.run)])
+  const severityBySite = new Map<string, number>()
+  for (const c of changes) {
+    const site = g1.sites.find(s => s.id === c.siteId)
+    const name = site?.label.name ?? c.siteId
+    const named = retryStats.get(name) ?? retryStats.get(c.siteId)
+    const mapped = new Map<string, { benign: number, incident: number }>()
+    if (named) mapped.set(c.siteId, named)
+    const factors = estimateSeverity(c.siteId, g1, mapped, classPrior)
+    severityBySite.set(c.siteId, Math.max(c.severity ?? 0, factors.sev))
+    // Prefer explicit severity 1 for protocol
+    if (c.axis === 'protocol') severityBySite.set(c.siteId, c.severity ?? 1)
+  }
+
+  const siteRho = siteIncompatibilities(changes, historyPayloads, betaPrior, severityBySite)
+  // Apply estimated severity onto siteRho
+  for (const s of siteRho) {
+    if (severityBySite.has(s.siteId) && s.axis !== 'protocol') {
+      s.severity = severityBySite.get(s.siteId)!
+    }
+  }
+
+  const P = pointTransitionMatrix(historyPaths, historyCompleted, g1, dirichletAlpha)
   const nodes = topologicalOrder(g1)
-  const targets = [...new Set(siteRho.map(s => s.siteId).filter(id => nodes.includes(id)))]
-  // Also include G1 sites that appear in changes even if only as protocol deleted — already in siteRho
-  const hitting = allHittingProbabilities(P, targets, nodes)
+  const targets = [...new Set([
+    ...siteRho.map(s => s.siteId).filter(id => nodes.includes(id)),
+    ...siteRho.map(s => s.insertAfter).filter((x): x is string => !!x && nodes.includes(x)),
+  ])]
+  const hitting = hittingFromP(P, targets, nodes)
+
+  // Prefix bucketing for shared R_b
+  const rbCache = new Map<string, { rb: number, prefixValid: boolean, reasons: string[] }>()
 
   const results: ScoredRun[] = []
   for (const { run, prefix } of inFlight) {
-    // Per-run exact interface: rebuild siteRho with this run's payloads for exact regime
-    const bw = backwardRisk(prefix, g1, g2, matching, siteRho, { exactRegime: exact })
-    const fw = forwardRisk(prefix.frontier, siteRho, hitting, prefix, { exactRegime: exact })
-    const wur = combineWur(bw.rb, fw.rf, alpha)
-    const verdict: VerdictClass = classifyVerdict(bw.rb, fw.rf, alpha, tauLo, tauHi)
+    const ph = prefixHash(prefix.siteIds, g1, prefix.frontier, prefix.correlationIds)
+    let bw = rbCache.get(ph)
+    if (!bw) {
+      bw = backwardRisk(prefix, g1, g2, matching, siteRho, { exactRegime: exact, unkMode })
+      rbCache.set(ph, bw)
+    }
+    // Recompute interface exact per-run even when structure shared
+    const bwExact = backwardRisk(prefix, g1, g2, matching, siteRho, { exactRegime: exact, unkMode })
+    const fw = forwardRisk(prefix.frontier, siteRho, hitting, prefix, { exactRegime: exact, unkMode })
+    const wur = combineWur(bwExact.rb, fw.rf, alpha)
+    const verdict: VerdictClass = classifyVerdict(bwExact.rb, fw.rf, alpha, tauLo, tauHi)
 
-    // Expected loss for review ranking: Σ sev(v) h_v(φ)
     let expectedLoss = 0
     if (prefix.frontier) {
       for (const s of siteRho) {
@@ -355,23 +383,67 @@ export function scoreRuns (
       }
     }
 
-    const reasons = [...bw.reasons, ...fw.reasons]
     results.push({
       run,
       prefix,
       risk: {
         runId: run.runId,
-        backwardRisk: bw.rb,
+        backwardRisk: bwExact.rb,
         forwardRisk: fw.rf,
         wur,
         verdict,
-        prefixValid: bw.prefixValid,
+        prefixValid: bwExact.prefixValid,
         frontier: prefix.frontier,
-        reasons,
+        reasons: [...bwExact.reasons, ...fw.reasons],
         expectedLoss,
       },
     })
   }
+
+  // Optional MC intervals on fleet and per-run (using draws)
+  if ((options.draws ?? 0) > 0 && results.length > 0) {
+    const mc = monteCarloWur({
+      g1,
+      changes,
+      historyPaths,
+      historyCompleted,
+      prefixes: results.map(r => r.prefix),
+      weights: results.map(r => r.run.weight ?? 1),
+      computeRbRf: (prefix, Pdraw, sev) => {
+        const hmap = hittingFromP(
+          Pdraw,
+          targets,
+          nodes
+        )
+        // Apply sampled severity
+        const rhoAdj = siteRho.map(s => ({
+          ...s,
+          severity: sev.get(s.siteId) ?? s.severity,
+        }))
+        const bw = backwardRisk(prefix, g1, g2, matching, rhoAdj, { exactRegime: exact, unkMode })
+        const fw = forwardRisk(prefix.frontier, rhoAdj, hmap, prefix, { exactRegime: exact, unkMode })
+        return { rb: bw.rb, rf: fw.rf }
+      },
+    }, options)
+
+    // Attach fleet interval via first run marker — analyze will lift
+    for (const r of results) {
+      r.risk.wurInterval = mc.interval
+      // Reclassify by upper bound when interval straddles
+      r.risk.verdict = classifyVerdict(
+        r.risk.backwardRisk,
+        r.risk.forwardRisk,
+        alpha,
+        tauLo,
+        tauHi,
+        mc.interval[1]
+      )
+      if (mc.interval[1] - mc.interval[0] > 0.4) {
+        r.risk.diagnosis = 'low-telemetry'
+      }
+    }
+  }
+
   return results
 }
 
@@ -386,5 +458,3 @@ export function fleetWur (scored: ScoredRun[]): number {
   }
   return den === 0 ? 0 : num / den
 }
-
-export type { TransitionCounts }
