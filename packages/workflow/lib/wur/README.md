@@ -60,7 +60,30 @@ npx @platformatic/workflow wur --g1 g1.json --g2 g2.json --history h.json --infl
 
 # Diff two source versions (extract + analyze)
 npx @platformatic/workflow wur --source-v1 old.ts --source-v2 new.ts --workflow orderFlow
+
+# CI: compare + record exposure so severity learns from every release
+DATABASE_URL=postgresql://... \
+npx @platformatic/workflow wur --source-v1 old.ts --source-v2 new.ts \
+  --app-id my-app --record-exposure
+
+# After a bad release / failed canary, mark incident for the same classes
+DATABASE_URL=postgresql://... \
+npx @platformatic/workflow wur --source-v1 old.ts --source-v2 new.ts \
+  --app-id my-app --record-exposure --incident
+
+# Or POST to a running service instead of direct DB
+npx @platformatic/workflow wur ... --record-exposure \
+  --service-url http://workflow:3042 --app-id my-app
+
+# Explicit calibration helpers
+npx @platformatic/workflow wur calibration record --app-id my-app --class insert-step
+npx @platformatic/workflow wur calibration show --app-id my-app
 ```
+
+`--record-exposure` infers change classes from the analysis annotations and
+writes them to Postgres (`DATABASE_URL`) or the service API (`--service-url`).
+That is the CI feedback loop: every compare is an exposure; add `--incident`
+only when the release was bad.
 
 ## Fidelity tests
 

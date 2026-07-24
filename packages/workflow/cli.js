@@ -7,10 +7,10 @@ import { create } from '@platformatic/runtime'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
-// Subcommand: wur (offline upgrade-risk analyzer)
+// Subcommand: wur (upgrade-risk analyzer + CI calibration feed)
 if (process.argv[2] === 'wur') {
   const { runWurCli } = await import('./lib/wur/cli-wur.ts')
-  const code = runWurCli(process.argv.slice(3))
+  const code = await runWurCli(process.argv.slice(3))
   process.exit(code)
 }
 
@@ -42,12 +42,18 @@ Options (server):
   --port, -p <port>  Listen port (default: 3042)
   --help, -h         Show this help message
 
-Subcommand wur (offline WUR analyzer, arXiv:2607.13617):
+Subcommand wur (WUR analyzer + CI calibration, arXiv:2607.13617):
   --g1 / --g2        Step graph JSON manifests
   --source-v1/v2     Extract graphs from workflow source
   --extract <file>   Emit graph manifest(s) from source
   --history / --inflight  Protocol run telemetry JSON
-  --tau-lo / --tau-hi / --draws / --json
+  --record-exposure  After analyze, record change-class exposure (for CI)
+  --incident         Mark that exposure as an incident (bad release)
+  --app-id <id>      Application id (or PLT_WORLD_APP_ID)
+  --service-url <u>  Workflow service for HTTP calibration (or PLT_WORLD_SERVICE_URL)
+  --database-url <u> Postgres write-through (or DATABASE_URL)
+  wur calibration record --app-id X --class insert-step [--incident]
+  wur calibration show --app-id X
 
 The service runs in single-tenant mode (no auth) by default.
 For multi-tenant mode with K8s authentication, deploy via the Platformatic Helm chart.

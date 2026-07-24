@@ -1,17 +1,36 @@
 /**
- * Offline WUR CLI — score upgrade risk from graphs + optional telemetry JSON.
+ * WUR CLI — score upgrade risk + record calibration from CI.
  *
- * Usage:
- *   platformatic-workflow wur --g1 g1.json --g2 g2.json [--history h.json] [--inflight i.json]
- *   platformatic-workflow wur --extract workflow.ts [--workflow name] [--out graph.json]
- *   platformatic-workflow wur --g1 g1.json --g2 g2.json --source-v1 a.ts --source-v2 b.ts
+ * Analyze (typical CI):
+ *   platformatic-workflow wur --source-v1 old.ts --source-v2 new.ts \
+ *     --app-id my-app --record-exposure
+ *   # optional: --incident  (mark this release as a bad outcome)
+ *
+ * Explicit calibration:
+ *   platformatic-workflow wur calibration record \
+ *     --app-id my-app --class insert-step [--incident]
+ *   platformatic-workflow wur calibration show --app-id my-app
+ *
+ * Persistence:
+ *   DATABASE_URL=postgresql://...   (direct Postgres write-through)
+ *   or --service-url http://localhost:3042  (HTTP to workflow service)
  */
 import { readFileSync, writeFileSync } from 'node:fs'
 import { resolve } from 'node:path'
+import pg from 'pg'
 import { analyzeUpgradeRisk } from './analyze.ts'
+import {
+  classesFromAnnotations,
+  defaultCalibrationStore,
+  type ChangeClass,
+} from './calibration.ts'
+import {
+  loadCalibrationFromDb,
+  recordReleaseOutcomePersistent,
+} from './calibration-db.ts'
 import { extractGraphsFromSource, extractWorkflowGraph } from './static/ast-extract.ts'
 import { graphToManifest, manifestToGraph, type GraphManifest } from './static/extract.ts'
-import type { ProtocolRun, StepGraph } from './types.ts'
+import type { FleetRiskResult, ProtocolRun, StepGraph } from './types.ts'
 
 export interface WurCliArgs {
   g1?: string
@@ -28,11 +47,34 @@ export interface WurCliArgs {
   draws?: number
   alpha?: number
   json?: boolean
+  /** After analyze, record exposure for inferred change classes (CI). */
+  recordExposure?: boolean
+  /** Mark recorded outcome as incident (default false = benign exposure). */
+  incident?: boolean
+  appId?: string
+  serviceUrl?: string
+  databaseUrl?: string
+  /** Explicit classes for `calibration record` (comma-separated or repeated). */
+  classes?: string[]
+  /** Subcommand path: [] | ['calibration','record'] | ['calibration','show'] */
+  subcommand?: string[]
 }
 
 export function parseWurArgs (argv: string[]): WurCliArgs {
-  const args: WurCliArgs = {}
-  for (let i = 0; i < argv.length; i++) {
+  const args: WurCliArgs = { subcommand: [], classes: [] }
+  let i = 0
+
+  // Optional subcommands: calibration record|show
+  if (argv[0] === 'calibration') {
+    args.subcommand = ['calibration']
+    i = 1
+    if (argv[1] === 'record' || argv[1] === 'show') {
+      args.subcommand.push(argv[1])
+      i = 2
+    }
+  }
+
+  for (; i < argv.length; i++) {
     const a = argv[i]
     const next = () => argv[++i]
     switch (a) {
@@ -50,16 +92,69 @@ export function parseWurArgs (argv: string[]): WurCliArgs {
       case '--draws': args.draws = Number(next()); break
       case '--alpha': args.alpha = Number(next()); break
       case '--json': args.json = true; break
+      case '--record-exposure': args.recordExposure = true; break
+      case '--incident': args.incident = true; break
+      case '--app-id': args.appId = next(); break
+      case '--service-url': args.serviceUrl = next(); break
+      case '--database-url': args.databaseUrl = next(); break
+      case '--class': case '--classes': {
+        const v = next()
+        if (v) args.classes!.push(...v.split(',').map(s => s.trim()).filter(Boolean))
+        break
+      }
+      case '--help': case '-h':
+        args.subcommand = ['help']
+        break
       default: break
     }
   }
+
+  // Env fallbacks
+  if (!args.databaseUrl && process.env.DATABASE_URL) {
+    args.databaseUrl = process.env.DATABASE_URL
+  }
+  if (!args.serviceUrl && process.env.PLT_WORLD_SERVICE_URL) {
+    args.serviceUrl = process.env.PLT_WORLD_SERVICE_URL
+  }
+  if (!args.appId && process.env.PLT_WORLD_APP_ID) {
+    args.appId = process.env.PLT_WORLD_APP_ID
+  }
+
   return args
+}
+
+function printHelp (): void {
+  console.error(`WUR CLI (arXiv:2607.13617) — upgrade risk + calibration for CI
+
+Analyze workflows (typical CI step):
+  platformatic-workflow wur --source-v1 old.ts --source-v2 new.ts \\
+    --app-id my-app --record-exposure
+  platformatic-workflow wur --g1 g1.json --g2 g2.json \\
+    --history h.json --inflight i.json --record-exposure --json
+
+  # After a bad deploy / failed canary, re-run with:
+  platformatic-workflow wur ... --record-exposure --incident
+
+Extract graphs:
+  platformatic-workflow wur --extract workflow.ts [--workflow name] [--out g.json]
+
+Calibration (explicit):
+  platformatic-workflow wur calibration record --app-id my-app \\
+    --class insert-step,demand-growth [--incident]
+  platformatic-workflow wur calibration show --app-id my-app
+
+Persistence (pick one):
+  DATABASE_URL=postgresql://...          write-through to Postgres
+  --service-url http://host:3042         POST to workflow service API
+  (in-memory only if neither is set — prints a warning)
+
+Env aliases: PLT_WORLD_SERVICE_URL, PLT_WORLD_APP_ID, DATABASE_URL
+`)
 }
 
 function loadGraph (path: string): StepGraph {
   const raw = JSON.parse(readFileSync(resolve(path), 'utf8')) as GraphManifest | StepGraph
   if ('sites' in raw && Array.isArray(raw.sites)) {
-    // Manifest or graph
     if (raw.sites[0] && 'name' in (raw.sites[0] as object) && !('label' in (raw.sites[0] as object))) {
       return manifestToGraph(raw as GraphManifest)
     }
@@ -73,8 +168,169 @@ function loadRuns (path: string | undefined): ProtocolRun[] {
   return JSON.parse(readFileSync(resolve(path), 'utf8')) as ProtocolRun[]
 }
 
-export function runWurCli (argv: string[]): number {
+type PersistMode = 'db' | 'http' | 'memory'
+
+function resolvePersistMode (args: WurCliArgs): PersistMode {
+  if (args.databaseUrl) return 'db'
+  if (args.serviceUrl) return 'http'
+  return 'memory'
+}
+
+async function recordCalibration (opts: {
+  args: WurCliArgs
+  changeClasses: ChangeClass[]
+  incident: boolean
+  exposures?: number
+}): Promise<{ mode: PersistMode, changeClasses: ChangeClass[] }> {
+  const { args, changeClasses, incident } = opts
+  const exposures = opts.exposures ?? 1
+  const mode = resolvePersistMode(args)
+  const appId = args.appId ?? 'default'
+
+  if (changeClasses.length === 0) {
+    return { mode, changeClasses: [] }
+  }
+
+  if (mode === 'db') {
+    const pool = new pg.Pool({ connectionString: args.databaseUrl })
+    try {
+      await recordReleaseOutcomePersistent({
+        pg: pool,
+        appIdStr: appId,
+        changeClasses,
+        incident,
+        exposures,
+        store: defaultCalibrationStore,
+      })
+    } finally {
+      await pool.end()
+    }
+  } else if (mode === 'http') {
+    const base = args.serviceUrl!.replace(/\/$/, '')
+    const url = `${base}/api/v1/apps/${encodeURIComponent(appId)}/upgrade-risk/calibration`
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        changeClasses,
+        incident,
+        exposures,
+      }),
+    })
+    if (!res.ok) {
+      const text = await res.text()
+      throw new Error(`calibration HTTP ${res.status}: ${text}`)
+    }
+  } else {
+    // memory only — still update process store for this CLI invocation
+    const { recordReleaseOutcome } = await import('./calibration.ts')
+    for (let i = 0; i < exposures; i++) {
+      recordReleaseOutcome({
+        appId,
+        changeClasses,
+        incident,
+        store: defaultCalibrationStore,
+      })
+    }
+  }
+
+  return { mode, changeClasses }
+}
+
+async function runCalibrationShow (args: WurCliArgs): Promise<number> {
+  const appId = args.appId ?? 'default'
+  const mode = resolvePersistMode(args)
+
+  if (mode === 'http') {
+    const base = args.serviceUrl!.replace(/\/$/, '')
+    const url = `${base}/api/v1/apps/${encodeURIComponent(appId)}/upgrade-risk/calibration`
+    const res = await fetch(url)
+    if (!res.ok) {
+      console.error(`GET calibration failed: ${res.status} ${await res.text()}`)
+      return 1
+    }
+    const body = await res.json()
+    console.log(JSON.stringify(body, null, 2))
+    return 0
+  }
+
+  if (mode === 'db') {
+    const pool = new pg.Pool({ connectionString: args.databaseUrl })
+    try {
+      await loadCalibrationFromDb(pool, defaultCalibrationStore)
+    } finally {
+      await pool.end()
+    }
+  }
+
+  const classes: ChangeClass[] = [
+    'body-only', 'demand-growth', 'insert-step', 'insert-timer', 'delete-site',
+    'swap-sites', 'parallel-reorder', 'predicate-change', 'predicate-refactor',
+    'migration', 'unknown',
+  ]
+  const out = {
+    mode,
+    appId,
+    app: Object.fromEntries(classes.map(c => [c, defaultCalibrationStore.calibrate(c, appId)])),
+    fleet: Object.fromEntries(classes.map(c => [c, defaultCalibrationStore.calibrate(c)])),
+  }
+  console.log(JSON.stringify(out, null, 2))
+  if (mode === 'memory') {
+    console.error('warning: no DATABASE_URL or --service-url; showing in-process store only')
+  }
+  return 0
+}
+
+async function runCalibrationRecord (args: WurCliArgs): Promise<number> {
+  const classes = (args.classes ?? []) as ChangeClass[]
+  if (classes.length === 0) {
+    console.error('calibration record requires --class <name>[,name...]')
+    return 1
+  }
+  if (!args.appId) {
+    console.error('calibration record requires --app-id (or PLT_WORLD_APP_ID)')
+    return 1
+  }
+  try {
+    const { mode, changeClasses } = await recordCalibration({
+      args,
+      changeClasses: classes,
+      incident: args.incident === true,
+    })
+    const payload = {
+      recorded: true,
+      durable: mode !== 'memory',
+      mode,
+      appId: args.appId,
+      changeClasses,
+      incident: args.incident === true,
+    }
+    console.log(JSON.stringify(payload, null, 2))
+    if (mode === 'memory') {
+      console.error('warning: no DATABASE_URL or --service-url; calibration is in-memory only')
+    }
+    return 0
+  } catch (err) {
+    console.error(err instanceof Error ? err.message : err)
+    return 1
+  }
+}
+
+export async function runWurCli (argv: string[]): Promise<number> {
   const args = parseWurArgs(argv)
+
+  if (args.subcommand?.[0] === 'help') {
+    printHelp()
+    return 0
+  }
+
+  if (args.subcommand?.[0] === 'calibration') {
+    const action = args.subcommand[1]
+    if (action === 'show') return runCalibrationShow(args)
+    if (action === 'record') return runCalibrationRecord(args)
+    printHelp()
+    return 1
+  }
 
   // Extract mode
   if (args.extract) {
@@ -124,25 +380,14 @@ export function runWurCli (argv: string[]): number {
     g1 = loadGraph(args.g1)
     g2 = loadGraph(args.g2)
   } else {
-    console.error(`Usage:
-  platformatic-workflow wur --g1 g1.json --g2 g2.json [--history h.json] [--inflight i.json]
-  platformatic-workflow wur --extract workflow.ts [--workflow name] [--out graph.json]
-  platformatic-workflow wur --source-v1 a.ts --source-v2 b.ts [--workflow name]
-
-Options:
-  --tau-lo <n>   migrate threshold (default 0.1)
-  --tau-hi <n>   pin threshold (default 0.5)
-  --draws <n>    Monte Carlo draws for CI (default 0)
-  --alpha <n>    behavioral discount (default 1)
-  --json         machine-readable output
-`)
+    printHelp()
     return 1
   }
 
   const history = loadRuns(args.history)
   const inFlight = loadRuns(args.inflight)
 
-  const result = analyzeUpgradeRisk({
+  const result: FleetRiskResult = analyzeUpgradeRisk({
     g1,
     g2,
     history,
@@ -157,8 +402,43 @@ Options:
     },
   })
 
+  // CI calibration: record exposure (and optional incident) from annotations
+  let calibrationMeta: Record<string, unknown> | undefined
+  if (args.recordExposure) {
+    if (!args.appId) {
+      console.error('error: --record-exposure requires --app-id (or PLT_WORLD_APP_ID)')
+      return 1
+    }
+    const changeClasses = classesFromAnnotations(result.annotations)
+    try {
+      const rec = await recordCalibration({
+        args,
+        changeClasses,
+        incident: args.incident === true,
+      })
+      calibrationMeta = {
+        recorded: true,
+        durable: rec.mode !== 'memory',
+        mode: rec.mode,
+        changeClasses: rec.changeClasses,
+        incident: args.incident === true,
+      }
+      if (rec.mode === 'memory') {
+        console.error('warning: no DATABASE_URL or --service-url; calibration is in-memory only')
+      } else if (!args.json) {
+        console.error(
+          `calibration: recorded ${rec.changeClasses.join(',') || '(none)'} ` +
+          `as ${args.incident ? 'incident' : 'exposure'} via ${rec.mode}`
+        )
+      }
+    } catch (err) {
+      console.error('calibration record failed:', err instanceof Error ? err.message : err)
+      return 1
+    }
+  }
+
   if (args.json) {
-    console.log(JSON.stringify(result, null, 2))
+    console.log(JSON.stringify({ ...result, calibration: calibrationMeta }, null, 2))
   } else {
     console.log(`WUR fleet score: ${result.wur.toFixed(4)}${result.wurInterval ? ` CI90=[${result.wurInterval[0].toFixed(3)}, ${result.wurInterval[1].toFixed(3)}]` : ''}`)
     console.log(`partition: migrate=${result.partition?.migrate.length ?? 0} review=${result.partition?.review.length ?? 0} pin=${result.partition?.pin.length ?? 0}`)

@@ -172,6 +172,7 @@ export {
 export { expandDevalueFlat, dehydrateForTest } from './hydrate.ts'
 
 export { runWurCli, parseWurArgs } from './cli-wur.ts'
+export type { WurCliArgs } from './cli-wur.ts'
 
 export {
   discoverWorkflowFiles,
