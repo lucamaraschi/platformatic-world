@@ -21,6 +21,7 @@ import { matchGraphs } from './match.ts'
 import { oracleUnsafe } from './oracle.ts'
 import { analyzeUpgradeRisk } from './analyze.ts'
 import { linearGraph, parallelGraph, topologicalOrder } from './sp.ts'
+import { loadRealCorpusArtifacts } from './static/realcorpus.ts'
 import type { ProtocolRun, StepGraph } from './types.ts'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
@@ -37,6 +38,21 @@ export function vercelCorpusDirs (repoRoot?: string): string[] {
 }
 
 export function loadVercelCorpus (repoRoot?: string): CorpusEntry[] {
+  // Prefer hand-translation artifacts (paper realcorpus) when present
+  const corpusRoot = repoRoot
+    ? join(repoRoot, 'packages/workflow/test/fixtures/vercel-corpus')
+    : join(__dirname, '../../test/fixtures/vercel-corpus')
+  const arts = loadRealCorpusArtifacts(corpusRoot)
+  if (arts.length > 0) {
+    return arts
+      .filter(e => e.graph.sites.length > 0)
+      .map(e => ({
+        sourcePath: e.sourcePath,
+        workflowName: e.workflowName,
+        graph: e.graph,
+        warnings: e.translationNotes.filter(n => n.startsWith('warn:')),
+      }))
+  }
   const files = discoverWorkflowFiles(vercelCorpusDirs(repoRoot))
   return loadCorpus(files).filter(e => e.graph.sites.length > 0)
 }

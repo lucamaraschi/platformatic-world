@@ -73,8 +73,18 @@ Gate: **FN = 0** vs oracle on structural mutations (§12 soundness).
 ### Corpus (`lib/wur/corpus.ts`, `lib/wur/paper-eval.ts`)
 
 **Vercel workbench corpus** (paper §12.3) vendored under
-`test/fixtures/vercel-corpus/` (vitest + cookbook + example workflows,
-Apache-2.0, see `PROVENANCE.md`).
+`test/fixtures/vercel-corpus/` at exact commit **`39673b7a…`**
+(vitest + cookbook + example; Apache-2.0; see `PROVENANCE.md` / `SOURCE_COMMIT`).
+
+**realcorpus/** — reviewable graph JSON artifacts (paper’s hand-translation
+constructors), regenerate with:
+
+```bash
+pnpm -C packages/workflow run generate:realcorpus
+```
+
+Demand inference prefers the **TypeScript compiler AST** (`ts-demand.ts`) when
+`typescript` is installed; falls back to the regex scanner.
 
 ```ts
 import { loadVercelCorpus, evalCorpusMutations, evalAllScenarios } from './paper-eval.ts'

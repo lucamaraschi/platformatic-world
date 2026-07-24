@@ -31,7 +31,8 @@ export interface DemandInferenceResult {
 }
 
 /**
- * Infer consumption contracts from a workflow function body.
+ * Infer consumption contracts from a workflow function body (regex scanner).
+ * Prefer `inferDemandsBestEffort` from ts-demand.ts when TypeScript is available.
  */
 export function inferDemandsFromSource (source: string): DemandInferenceResult {
   const warnings: string[] = []
@@ -244,8 +245,9 @@ function escapeReg (s: string): string {
 
 export function enrichGraphWithDemandInference (
   source: string,
-  graph: import('../types.ts').StepGraph
+  graph: import('../types.ts').StepGraph,
+  inference?: DemandInferenceResult
 ): { graph: import('../types.ts').StepGraph, inference: DemandInferenceResult } {
-  const inference = inferDemandsFromSource(source)
-  return { graph: applyDemandsToGraph(graph, inference), inference }
+  const inf = inference ?? inferDemandsFromSource(source)
+  return { graph: applyDemandsToGraph(graph, inf), inference: inf }
 }

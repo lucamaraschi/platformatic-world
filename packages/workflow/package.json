@@ -22,6 +22,7 @@
     "dev": "wattpm dev -c watt-dev.json",
     "test": "node --test --test-concurrency=1 test/*.test.ts",
     "test:wur": "node --test --test-concurrency=1 test/wur*.test.ts",
+    "generate:realcorpus": "node --experimental-strip-types scripts/generate-realcorpus.ts",
     "lint": "eslint"
   },
   "dependencies": {

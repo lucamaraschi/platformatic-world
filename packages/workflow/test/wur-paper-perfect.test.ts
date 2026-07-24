@@ -16,9 +16,12 @@ import {
 import {
   extractGraphsFromSource,
   inferDemandsFromSource,
+  inferDemandsWithTypeScript,
+  isTsDemandAvailable,
+  loadRealCorpusArtifacts,
   topologicalOrder,
 } from '../lib/wur/index.ts'
-import { readFileSync, readdirSync } from 'node:fs'
+import { readFileSync, readdirSync, existsSync } from 'node:fs'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const repoRoot = join(__dirname, '../../..')
@@ -152,6 +155,50 @@ describe('Paper demand inference depth', () => {
     `
     const inf = inferDemandsFromSource(src)
     assert.ok(inf.byProducer.get('load')?.fields.includes('active'))
+  })
+
+  it('TypeScript AST demand matches scanner on Promise.all + alias', () => {
+    assert.ok(isTsDemandAvailable(), 'typescript package required for paper-perfect demand')
+    const src = `
+      export async function wf() {
+        'use workflow'
+        const [a, b] = await Promise.all([fetchUser(), fetchOrder()])
+        const u = a
+        const name = u.displayName
+        const total = b.total
+      }
+    `
+    const tsInf = inferDemandsWithTypeScript(src)
+    assert.ok(tsInf)
+    assert.ok(tsInf!.byProducer.get('fetchUser')?.fields.includes('displayName'))
+    assert.ok(tsInf!.byProducer.get('fetchOrder')?.fields.includes('total'))
+  })
+
+  it('TypeScript AST marks ElementAccess as unk', () => {
+    const src = `
+      const x = await fetchData()
+      const v = x[fieldName]
+    `
+    const tsInf = inferDemandsWithTypeScript(src)
+    assert.ok(tsInf)
+    assert.equal(tsInf!.byProducer.get('fetchData')?.unk, true)
+  })
+})
+
+describe('Paper realcorpus artifacts', () => {
+  it('loads hand-translation JSON keyed by source path', () => {
+    const root = join(repoRoot, 'packages/workflow/test/fixtures/vercel-corpus')
+    assert.ok(existsSync(join(root, 'SOURCE_COMMIT')))
+    const commit = readFileSync(join(root, 'SOURCE_COMMIT'), 'utf8').trim()
+    assert.ok(commit.startsWith('39673b7'), `expected paper commit 39673b7, got ${commit}`)
+
+    const arts = loadRealCorpusArtifacts(root)
+    assert.ok(arts.length >= 20, `realcorpus artifacts=${arts.length}`)
+    for (const a of arts.slice(0, 5)) {
+      assert.ok(a.sourcePath.endsWith('.ts'))
+      assert.ok(a.translationNotes.length > 0)
+      assert.ok(Array.isArray(a.graph.sites))
+    }
   })
 })
 

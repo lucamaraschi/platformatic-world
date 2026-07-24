@@ -1,0 +1,54 @@
+{
+  "sourcePath": "cookbook/tool-orchestration.ts",
+  "workflowName": "toolOrchestrationWorkflow",
+  "paperCommit": "39673b7a381b029032525485e566f1663f549fa3",
+  "translationNotes": [
+    "use step call → step site (module-qualified optional)",
+    "sleep() → timer site",
+    "createWebhook/createHook + await → hook site",
+    "Promise.all → join-observed parallel group (source branch order is identity)",
+    "Promise.race/any → race group (no independent pairs)",
+    "if/else on step results → branch predicates when present",
+    "demand fields via access-path inference on consumer slices (TS AST preferred)"
+  ],
+  "graph": {
+    "version": 2,
+    "modulePath": "cookbook/tool-orchestration.ts",
+    "sites": [
+      {
+        "id": "fetchData",
+        "name": "fetchData",
+        "kind": "step",
+        "qualifiedName": "fetchData",
+        "demandFields": [
+          "value"
+        ],
+        "consumesFrom": [
+          "fetchWithDelay"
+        ]
+      },
+      {
+        "id": "fetchWithDelay",
+        "name": "fetchWithDelay",
+        "kind": "step",
+        "qualifiedName": "fetchWithDelay",
+        "demandFields": [
+          "value"
+        ],
+        "consumesFrom": [
+          "fetchData"
+        ]
+      }
+    ],
+    "edges": [
+      {
+        "from": null,
+        "to": "fetchData"
+      },
+      {
+        "from": "fetchData",
+        "to": "fetchWithDelay"
+      }
+    ]
+  }
+}

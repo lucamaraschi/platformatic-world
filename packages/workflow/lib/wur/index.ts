@@ -143,6 +143,18 @@ export type {
 } from './static/demand-infer.ts'
 
 export {
+  inferDemandsWithTypeScript,
+  inferDemandsBestEffort,
+  isTsDemandAvailable,
+} from './static/ts-demand.ts'
+
+export {
+  generateRealCorpusArtifacts,
+  loadRealCorpusArtifacts,
+} from './static/realcorpus.ts'
+export type { RealCorpusEntry, RealCorpusArtifact } from './static/realcorpus.ts'
+
+export {
   CalibrationStore,
   defaultCalibrationStore,
   recordReleaseOutcome,

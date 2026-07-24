@@ -4,7 +4,11 @@
 
 - **[calib-persist] DONE** — migration `008`, `calibration-db.ts`, load onReady, write-through on POST. Keys: `fleet` + external app_id string.
 - **Gaps fill DONE** — demand-infer, resource fingerprints, large mutation study, CI `test:wur` step.
-- **Paper-perfect push DONE** — vendored vercel workbench corpus (`test/fixtures/vercel-corpus`), `paper-eval.ts` S1–S11 + corpus mutations, deeper demand (Promise.all, alias, if-predicates). Still scanner-based demand (not full TS dataflow).
+- **Paper-perfect push DONE** — vendored vercel workbench corpus (`test/fixtures/vercel-corpus`), `paper-eval.ts` S1–S11 + corpus mutations, deeper demand (Promise.all, alias, if-predicates).
+- **Last 3 chased DONE**:
+  1. Corpus pinned to paper commit `39673b7a381b029032525485e566f1663f549fa3`
+  2. TS compiler AST demand (`ts-demand.ts`) preferred over scanner
+  3. `realcorpus/` JSON artifacts (paper hand-translation constructors); regenerate via `pnpm -C packages/workflow run generate:realcorpus`
 
 ## 2026-07-23 — Corpus harness
 
