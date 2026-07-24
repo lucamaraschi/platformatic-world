@@ -132,10 +132,12 @@ export type { ExtractOptions, ExtractResult } from './static/ast-extract.ts'
 export {
   CalibrationStore,
   defaultCalibrationStore,
+  recordReleaseOutcome,
+  classesFromAnnotations,
 } from './calibration.ts'
 export type { ChangeClass, ClassRecord, ClassCalibration } from './calibration.ts'
 
-export { expandDevalueFlat } from './hydrate.ts'
+export { expandDevalueFlat, dehydrateForTest } from './hydrate.ts'
 
 export { runWurCli, parseWurArgs } from './cli-wur.ts'
 

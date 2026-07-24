@@ -71,6 +71,33 @@ pnpm -C packages/workflow exec node --test --test-concurrency=1 \
 
 Gate: **FN = 0** vs oracle on structural mutations (§12 soundness).
 
+## Devalue hydration
+
+Step payloads stored as BYTEA with Workflow SDK framing (`devl` + devalue text)
+are decoded with the `devalue` library (same as `@workflow/core`). Encrypted
+payloads (`encr` prefix) remain non-inspectable without a key.
+
+```ts
+import { dehydrateForTest, hydrateEventData } from './index.ts'
+const buf = dehydrateForTest({ promoCode: 'X' })
+const h = hydrateEventData(buf) // recordInspectable: true
+```
+
+## Calibration feed
+
+```bash
+# After a deploy / incident review
+POST /api/v1/apps/:appId/upgrade-risk/calibration
+{ "changeClasses": ["insert-step"], "incident": true }
+
+# Or pass annotations from a prior WUR response
+{ "annotations": [...], "incident": false }
+
+GET /api/v1/apps/:appId/upgrade-risk/calibration
+```
+
+Severity in scoring uses `CalibrationStore` posteriors (§6.4).
+
 ## Model limitations (§11)
 
 Implemented *as specified* (not fixed):
@@ -80,3 +107,4 @@ Implemented *as specified* (not fixed):
 - First-order Markov control flow
 - Cyclic contagion over-estimates (safe direction)
 - Binary migrate/pin cut (k=2 versions)
+- Encrypted payloads without key → opaque (no field risk)

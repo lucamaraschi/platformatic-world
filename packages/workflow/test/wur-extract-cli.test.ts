@@ -129,12 +129,11 @@ async function b() { 'use step'; return 2 }
 })
 
 describe('WUR devalue flat expand', () => {
-  it('expands flattened object table to record', () => {
-    // [rootIdx=0, {promoCode: 1, amount: 2}, "SAVE", 10]
+  it('expands pointer-table array to record', () => {
+    // Manual pointer table: slot0 → slot1 object; fields point at string/number slots
     const flat = [1, { promoCode: 2, amount: 3 }, 'SAVE', 10]
     const h = expandDevalueFlat(flat)
-    // root resolve(0) → arr[0]=1 → resolve(1) → object
-    assert.equal(h.recordInspectable, true)
+    assert.equal(h.recordInspectable, true, JSON.stringify(h))
     const rec = h.value as Record<string, unknown>
     assert.equal(rec.promoCode, 'SAVE')
     assert.equal(rec.amount, 10)
@@ -142,7 +141,6 @@ describe('WUR devalue flat expand', () => {
 
   it('hydrateEventData uses expand on arrays', () => {
     const h = hydrateEventData([1, { x: 2 }, 'hi'])
-    // may be record if expand works
     assert.ok(h.kind === 'record' || h.kind === 'array')
   })
 })

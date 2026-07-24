@@ -137,3 +137,38 @@ function clamp (x: number, lo: number, hi: number): number {
 
 /** Shared process-local store (tests can replace). */
 export const defaultCalibrationStore = new CalibrationStore()
+
+/**
+ * Record a release exposure (and optional incident) for severity learning.
+ * Call after deploy / after ops marks a bad release.
+ */
+export function recordReleaseOutcome (opts: {
+  appId?: string | null
+  changeClasses: ChangeClass[]
+  incident?: boolean
+  store?: CalibrationStore
+}): void {
+  const store = opts.store ?? defaultCalibrationStore
+  const incident = opts.incident === true ? 1 : 0
+  for (const changeClass of opts.changeClasses) {
+    store.record(opts.appId ?? null, {
+      changeClass,
+      exposures: 1,
+      incidents: incident,
+    })
+  }
+}
+
+/**
+ * Infer change classes from WUR annotations (deploy-time feedback loop).
+ */
+export function classesFromAnnotations (
+  annotations: Array<{ axis: string, reason: string }>
+): ChangeClass[] {
+  const set = new Set<ChangeClass>()
+  for (const a of annotations) {
+    set.add(CalibrationStore.classifyReason(a.reason))
+  }
+  if (set.size === 0) set.add('unknown')
+  return [...set]
+}
