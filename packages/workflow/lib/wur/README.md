@@ -70,16 +70,21 @@ pnpm -C packages/workflow exec node --test --test-concurrency=1 test/wur*.test.t
 
 Gate: **FN = 0** vs oracle on structural mutations (§12 soundness).
 
-### Corpus (`lib/wur/corpus.ts`)
+### Corpus (`lib/wur/corpus.ts`, `lib/wur/paper-eval.ts`)
 
-Runs extract → self-diff → mutators over `e2e-v4/workflows` + `e2e-v5/workflows`
-(paper §12-style stand-in for the Vercel workbench corpus):
+**Vercel workbench corpus** (paper §12.3) vendored under
+`test/fixtures/vercel-corpus/` (vitest + cookbook + example workflows,
+Apache-2.0, see `PROVENANCE.md`).
 
 ```ts
-import { runCorpusReport } from './corpus.ts'
-const report = runCorpusReport(['e2e-v5/workflows', 'e2e-v4/workflows'])
-// report.sound === true  ⇔  FN=0 and self-diff clean
+import { loadVercelCorpus, evalCorpusMutations, evalAllScenarios } from './paper-eval.ts'
+
+const corpus = loadVercelCorpus()
+const mut = evalCorpusMutations(corpus)  // FN=0 structural mutators
+const s11 = evalAllScenarios(400)        // S1–S11 controlled suite
 ```
+
+Also: e2e-v4/v5 + synthetic large mutation study.
 
 ## Demand inference
 

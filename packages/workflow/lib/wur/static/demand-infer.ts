@@ -45,8 +45,33 @@ export function inferDemandsFromSource (source: string): DemandInferenceResult {
   while ((m = awaitBindRe.exec(source)) !== null) {
     const binding = m[1]
     const producer = m[2]
-    if (['sleep', 'createHook', 'createWebhook', 'Promise', 'fetch'].includes(producer)) continue
+    if (['sleep', 'createHook', 'createWebhook', 'Promise', 'fetch', 'start'].includes(producer)) continue
     bindingToProducer.set(binding, producer)
+  }
+
+  // Promise.all / allSettled array destructure:
+  //   const [a, b] = await Promise.all([foo(), bar()])
+  const pallRe =
+    /(?:const|let|var)\s*\[([^\]]+)\]\s*=\s*await\s+Promise\.(?:all|allSettled)\s*\(\s*\[([\s\S]*?)\]\s*\)/g
+  while ((m = pallRe.exec(source)) !== null) {
+    const binds = m[1].split(',').map(s => s.trim()).filter(Boolean)
+    const calls = [...m[2].matchAll(/([A-Za-z_$][\w$]*)\s*\(/g)].map(x => x[1])
+    for (let i = 0; i < binds.length && i < calls.length; i++) {
+      const b = binds[i].replace(/^\.\.\./, '')
+      if (/^[A-Za-z_$]/.test(b) && !['sleep', 'Promise'].includes(calls[i])) {
+        bindingToProducer.set(b, calls[i])
+      }
+    }
+  }
+
+  // Aliasing: const y = x (after all producer bindings known)
+  const aliasRe = /(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*([A-Za-z_$][\w$]*)\s*[;\n]/g
+  while ((m = aliasRe.exec(source)) !== null) {
+    const alias = m[1]
+    const src = m[2]
+    if (bindingToProducer.has(src) && !bindingToProducer.has(alias)) {
+      bindingToProducer.set(alias, bindingToProducer.get(src)!)
+    }
   }
 
   // Destructuring assignment from await: const { a, b } = await foo()
@@ -104,6 +129,15 @@ export function inferDemandsFromSource (source: string): DemandInferenceResult {
     ) {
       unk = true
       unkReason = unkReason ?? `dynamic/reflective access on ${binding}`
+    }
+
+    // Control-flow predicates: if (binding.flag) / switch (binding.kind)
+    const ifRe = new RegExp(
+      `\\bif\\s*\\(\\s*!??\\s*${escapeReg(binding)}\\s*\\.\\s*([A-Za-z_$][\\w$]*)`,
+      'g'
+    )
+    while ((mm = ifRe.exec(source)) !== null) {
+      if (mm[1]) fieldSet.add(mm[1])
     }
 
     if (unk) {

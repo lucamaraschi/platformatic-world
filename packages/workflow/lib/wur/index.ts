@@ -172,6 +172,23 @@ export {
   runLargeMutationStudy,
   prefixesOf,
 } from './corpus.ts'
+
+export {
+  loadVercelCorpus,
+  vercelCorpusDirs,
+  paperReferenceGraph,
+  paperScenarios,
+  evalScenario,
+  evalAllScenarios,
+  evalCorpusMutations,
+  workedExamplePartitions,
+} from './paper-eval.ts'
+export type {
+  ScenarioId,
+  ScenarioSpec,
+  ScenarioResult,
+  PaperMutationReport,
+} from './paper-eval.ts'
 export type {
   CorpusEntry,
   CorpusReport,
