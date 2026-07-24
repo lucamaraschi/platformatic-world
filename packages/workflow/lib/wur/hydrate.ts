@@ -101,15 +101,19 @@ function hydrateBuffer (buf: Buffer): HydratedValue {
 }
 
 /**
- * Partial devalue-like decode: try JSON after prefix strip; otherwise opaque.
- * Full devalue requires the SDK serializer; WUR treats unparsed wrappers as unk.
+ * Partial devalue-like decode.
+ *
+ * Full devalue needs the SDK serializer. We support:
+ *  - "devl" / "devalue:" + JSON payload
+ *  - flattened value arrays with numeric back-refs (best-effort expand to record)
+ *  - otherwise opaque → lattice unk
  */
 function hydrateDevalueLike (buf: Buffer): HydratedValue {
   const text = buf.toString('utf-8')
-  // Sometimes framed as devl + JSON
-  for (const prefix of [DEVALUE_PREFIX, 'devalue:']) {
+  for (const prefix of [DEVALUE_PREFIX, 'devalue:', 'devalue']) {
     if (text.startsWith(prefix)) {
-      const rest = text.slice(prefix.length)
+      let rest = text.slice(prefix.length)
+      if (rest.startsWith(':')) rest = rest.slice(1)
       try {
         return classifyHydrated(JSON.parse(rest))
       } catch {
@@ -117,12 +121,68 @@ function hydrateDevalueLike (buf: Buffer): HydratedValue {
       }
     }
   }
-  // Try full buffer as JSON
   try {
     return classifyHydrated(JSON.parse(text))
   } catch {
+    // try UTF-8 after skipping binary header
+    if (buf.length > 4) {
+      try {
+        const tail = buf.subarray(4).toString('utf-8')
+        if (tail.startsWith('{') || tail.startsWith('[')) {
+          return classifyHydrated(JSON.parse(tail))
+        }
+      } catch {
+        // opaque
+      }
+    }
     return { kind: 'opaque', value: buf, recordInspectable: false }
   }
+}
+
+/**
+ * Best-effort expand devalue flattened form:
+ *   [0, {"id":1,"name":2}, "x", "y"] with back-refs as numbers
+ * into a plain object when the root is an object index.
+ */
+export function expandDevalueFlat (arr: unknown[]): HydratedValue {
+  if (!Array.isArray(arr) || arr.length === 0) {
+    return { kind: 'array', value: arr, recordInspectable: false }
+  }
+  // Heuristic: if any element is a plain object with string keys, treat as value table
+  const hasObj = arr.some(x => x !== null && typeof x === 'object' && !Array.isArray(x))
+  if (!hasObj) {
+    return { kind: 'array', value: arr, recordInspectable: false }
+  }
+
+  const resolve = (ref: unknown, depth = 0): unknown => {
+    if (depth > 32) return undefined
+    // Numeric refs index into the table (including when root is a pointer)
+    if (typeof ref === 'number' && Number.isInteger(ref) && ref >= 0 && ref < arr.length) {
+      const v = arr[ref]
+      // Follow pointer chains (root → object slot)
+      if (typeof v === 'number' && Number.isInteger(v)) {
+        return resolve(v, depth + 1)
+      }
+      if (v !== null && typeof v === 'object' && !Array.isArray(v)) {
+        const out: Record<string, unknown> = {}
+        for (const [k, val] of Object.entries(v as Record<string, unknown>)) {
+          out[k] = typeof val === 'number' ? resolve(val, depth + 1) : val
+        }
+        return out
+      }
+      if (Array.isArray(v)) {
+        return v.map(x => (typeof x === 'number' ? resolve(x, depth + 1) : x))
+      }
+      return v
+    }
+    return ref
+  }
+
+  const root = resolve(0)
+  if (root !== null && typeof root === 'object' && !Array.isArray(root)) {
+    return { kind: 'record', value: root, recordInspectable: true }
+  }
+  return { kind: 'array', value: arr, recordInspectable: false }
 }
 
 function classifyHydrated (value: unknown): HydratedValue {
@@ -139,15 +199,16 @@ function classifyHydrated (value: unknown): HydratedValue {
     return { kind: 'set', value, recordInspectable: false }
   }
   if (Array.isArray(value)) {
-    // devalue flattened form is an array with special markers — treat as opaque
-    // if it looks like a devalue wire format (sparse typed tags). Conservative:
-    // plain arrays of objects are inspectable element-wise only for index fields.
+    // Attempt devalue flat expansion
+    const expanded = expandDevalueFlat(value)
+    if (expanded.recordInspectable) return expanded
     return { kind: 'array', value, recordInspectable: false }
   }
   if (typeof value === 'object') {
-    // Detect revived typed wrappers
     const o = value as Record<string, unknown>
-    if (o.__type === 'Date' || o.__type === 'Map' || o.__type === 'Set') {
+    // Typed wrapper tags (common in structured serializers)
+    if (o.__type === 'Date' || o.__type === 'Map' || o.__type === 'Set' ||
+        o.$type === 'Date' || o.$type === 'Map' || o.$type === 'Set') {
       return { kind: 'unknown', value, recordInspectable: false }
     }
     return { kind: 'record', value, recordInspectable: true }

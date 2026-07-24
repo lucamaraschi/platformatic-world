@@ -7,8 +7,9 @@ import {
   distributionalInterfaceRisk,
   poolLogOdds,
 } from './contracts.ts'
+import { defaultCalibrationStore } from './calibration.ts'
 import {
-  estimateSeverity,
+  estimateSeverityCalibrated,
   collectRetryStats,
   monteCarloWur,
   pointTransitionMatrix,
@@ -330,15 +331,26 @@ export function scoreRuns (
   // Severity from retry telemetry
   const retryStats = collectRetryStats([...allRunsForRetry, ...inFlight.map(x => x.run)])
   const severityBySite = new Map<string, number>()
+  const store = defaultCalibrationStore
   for (const c of changes) {
     const site = g1.sites.find(s => s.id === c.siteId)
     const name = site?.label.name ?? c.siteId
     const named = retryStats.get(name) ?? retryStats.get(c.siteId)
     const mapped = new Map<string, { benign: number, incident: number }>()
     if (named) mapped.set(c.siteId, named)
-    const factors = estimateSeverity(c.siteId, g1, mapped, classPrior)
-    severityBySite.set(c.siteId, Math.max(c.severity ?? 0, factors.sev))
-    // Prefer explicit severity 1 for protocol
+    const factors = estimateSeverityCalibrated(
+      c.siteId,
+      g1,
+      mapped,
+      c.reason,
+      null,
+      store
+    )
+    // Blend explicit class prior option when calibration is cold
+    const sev = factors.coldStart
+      ? clamp01(0.5 * factors.sev + 0.5 * classPrior)
+      : factors.sev
+    severityBySite.set(c.siteId, Math.max(c.severity ?? 0, sev))
     if (c.axis === 'protocol') severityBySite.set(c.siteId, c.severity ?? 1)
   }
 

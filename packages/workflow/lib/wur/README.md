@@ -49,10 +49,24 @@ const result = analyzeUpgradeRisk({
 - `POST /api/v1/apps/:appId/upgrade-risk` — DB telemetry + graphs
 - `POST /api/v1/upgrade-risk/analyze` — pure (inline history/inFlight)
 
+## CLI
+
+```bash
+# Extract step graph from workflow source
+npx @platformatic/workflow wur --extract workflows/order.ts --workflow orderFlow --out g1.json
+
+# Score from graphs + optional telemetry
+npx @platformatic/workflow wur --g1 g1.json --g2 g2.json --history h.json --inflight i.json --json
+
+# Diff two source versions (extract + analyze)
+npx @platformatic/workflow wur --source-v1 old.ts --source-v2 new.ts --workflow orderFlow
+```
+
 ## Fidelity tests
 
 ```bash
-pnpm -C packages/workflow exec node --test --test-concurrency=1 test/wur.test.ts test/wur-fidelity.test.ts
+pnpm -C packages/workflow exec node --test --test-concurrency=1 \
+  test/wur.test.ts test/wur-fidelity.test.ts test/wur-extract-cli.test.ts
 ```
 
 Gate: **FN = 0** vs oracle on structural mutations (§12 soundness).

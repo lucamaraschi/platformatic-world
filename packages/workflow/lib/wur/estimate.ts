@@ -1,6 +1,7 @@
 /**
  * Bayesian estimation, severity, Monte Carlo CI (§6).
  */
+import { CalibrationStore, type ChangeClass } from './calibration.ts'
 import { betaMean, clamp01, sampleBeta } from './contracts.ts'
 import {
   allHittingProbabilities,
@@ -52,6 +53,29 @@ export function estimateSeverity (
   // Pool in log-odds-ish average
   const sev = clamp01(0.5 * reexec + 0.3 * blast + 0.2 * classPrior)
   return { reexec, blast, classCal: classPrior, sev }
+}
+
+/**
+ * Severity using CalibrationStore class posterior when available.
+ */
+export function estimateSeverityCalibrated (
+  siteId: string,
+  graph: StepGraph,
+  retryStats: Map<string, { benign: number, incident: number }>,
+  changeReason: string,
+  appId?: string | null,
+  store?: CalibrationStore
+): SeverityFactors & { coldStart?: boolean } {
+  let classPrior = 0.5
+  let coldStart = false
+  if (store) {
+    const cls: ChangeClass = CalibrationStore.classifyReason(changeReason)
+    const cal = store.calibrate(cls, appId)
+    classPrior = cal.mean
+    coldStart = cal.coldStart
+  }
+  const base = estimateSeverity(siteId, graph, retryStats, classPrior)
+  return { ...base, coldStart }
 }
 
 /**
