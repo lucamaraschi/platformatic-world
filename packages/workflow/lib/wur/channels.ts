@@ -26,6 +26,8 @@ export function buildCouplingGraph (
     /** Infinite penalty for hierarchy/saga (must-move-together). */
     hardHierarchy?: boolean
     coOccurrenceMin?: number
+    resourceTransmission?: number
+    resourcePenalty?: number
   } = {}
 ): CouplingEdge[] {
   const hard = options.hardHierarchy !== false
@@ -85,6 +87,13 @@ export function buildCouplingGraph (
     }
   }
 
+  // Tier 2: resource fingerprints (tables, queues, endpoints) with write mode
+  const resourceEdges = buildResourceFingerprintEdges(runs, {
+    transmission: options.resourceTransmission ?? 0.7,
+    channelPenalty: options.resourcePenalty ?? 0.5,
+  })
+  edges.push(...resourceEdges)
+
   // Key co-occurrence (tier 3): shared primitive id-like fields
   const minCo = options.coOccurrenceMin ?? 2
   const keyRuns = new Map<string, Set<string>>()
@@ -113,6 +122,134 @@ export function buildCouplingGraph (
   }
 
   return dedupeEdges(edges)
+}
+
+export interface ResourceTouch {
+  resource: string
+  mode: 'read' | 'write' | 'unknown'
+}
+
+/**
+ * Extract resource fingerprints from event/step payloads and attributes.
+ * Looks for:
+ *   - explicit resourceFingerprint / resources arrays
+ *   - span-like attributes: db.table, messaging.destination, http.url, queue
+ *   - common keys: table, queue, topic, endpoint, bucket
+ */
+export function extractResourceTouches (eventData: unknown): ResourceTouch[] {
+  const out: ResourceTouch[] = []
+  if (eventData == null || typeof eventData !== 'object') return out
+  const obj = eventData as Record<string, unknown>
+
+  // Explicit SDK-style annotations
+  if (Array.isArray(obj.resourceFingerprint)) {
+    for (const r of obj.resourceFingerprint) {
+      if (typeof r === 'string') out.push({ resource: r, mode: 'unknown' })
+      else if (r && typeof r === 'object') {
+        const rr = r as Record<string, unknown>
+        out.push({
+          resource: String(rr.name ?? rr.id ?? rr.resource ?? ''),
+          mode: rr.mode === 'write' || rr.mode === 'read' ? rr.mode : 'unknown',
+        })
+      }
+    }
+  }
+  if (Array.isArray(obj.resources)) {
+    for (const r of obj.resources) {
+      if (typeof r === 'string') out.push({ resource: `res:${r}`, mode: 'unknown' })
+    }
+  }
+
+  // Nested attributes (OTEL-style)
+  const attrs = (obj.attributes ?? obj.attrs ?? obj.spanAttributes ?? obj) as Record<string, unknown>
+  const pairs: Array<[string, string, ResourceTouch['mode']]> = [
+    ['db.table', 'table', 'write'],
+    ['db.sql.table', 'table', 'write'],
+    ['messaging.destination', 'queue', 'write'],
+    ['messaging.kafka.topic', 'topic', 'write'],
+    ['http.url', 'http', 'read'],
+    ['http.target', 'http', 'read'],
+    ['table', 'table', guessMode(obj)],
+    ['queue', 'queue', guessMode(obj)],
+    ['topic', 'topic', guessMode(obj)],
+    ['endpoint', 'http', 'read'],
+    ['bucket', 'bucket', guessMode(obj)],
+  ]
+  for (const [key, kind, mode] of pairs) {
+    const v = attrs[key]
+    if (typeof v === 'string' && v.length > 0) {
+      out.push({ resource: `${kind}:${v}`, mode })
+    }
+  }
+
+  // Walk result payload for nested resource hints
+  const result = obj.result
+  if (result && typeof result === 'object' && !Array.isArray(result)) {
+    out.push(...extractResourceTouches(result))
+  }
+
+  return out.filter(t => t.resource.length > 0)
+}
+
+function guessMode (obj: Record<string, unknown>): ResourceTouch['mode'] {
+  const m = obj.mode ?? obj.accessMode ?? obj.op
+  if (m === 'write' || m === 'read') return m
+  if (typeof obj.eventType === 'string' && /write|insert|update|delete|publish/i.test(obj.eventType)) {
+    return 'write'
+  }
+  return 'unknown'
+}
+
+/**
+ * Tier-2 resource edges: runs that share a resource with at least one write.
+ */
+export function buildResourceFingerprintEdges (
+  runs: ProtocolRun[],
+  opts: { transmission?: number, channelPenalty?: number } = {}
+): CouplingEdge[] {
+  const transmission = opts.transmission ?? 0.7
+  const channelPenalty = opts.channelPenalty ?? 0.5
+  // resource → { runId, modes }
+  const map = new Map<string, Map<string, Set<ResourceTouch['mode']>>>()
+
+  for (const r of runs) {
+    for (const ev of r.events) {
+      for (const t of extractResourceTouches(ev.eventData)) {
+        if (!map.has(t.resource)) map.set(t.resource, new Map())
+        const runModes = map.get(t.resource)!
+        if (!runModes.has(r.runId)) runModes.set(r.runId, new Set())
+        runModes.get(r.runId)!.add(t.mode)
+      }
+    }
+  }
+
+  const edges: CouplingEdge[] = []
+  for (const [, runModes] of map) {
+    const ids = [...runModes.keys()]
+    if (ids.length < 2) continue
+    // Require at least one writer among the set
+    const hasWrite = [...runModes.values()].some(modes =>
+      modes.has('write') || modes.has('unknown')
+    )
+    if (!hasWrite) continue
+    for (let i = 0; i < ids.length; i++) {
+      for (let j = i + 1; j < ids.length; j++) {
+        edges.push({
+          from: ids[i],
+          to: ids[j],
+          transmission,
+          channelPenalty,
+        })
+        edges.push({
+          from: ids[j],
+          to: ids[i],
+          transmission,
+          channelPenalty,
+        })
+      }
+    }
+  }
+  return edges
 }
 
 function extractEntityKeys (data: unknown, path = ''): string[] {

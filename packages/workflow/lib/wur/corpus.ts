@@ -337,3 +337,92 @@ export function syntheticCorpus (): CorpusEntry[] {
     },
   ]
 }
+
+/**
+ * Generate a larger synthetic workflow corpus (paper §12.2 scale stand-in).
+ * Each entry is a linear or parallel graph of varying length.
+ */
+export function generateSyntheticCorpus (count = 120): CorpusEntry[] {
+  const entries: CorpusEntry[] = [...syntheticCorpus()]
+  for (let i = 0; i < count; i++) {
+    const n = 2 + (i % 8)
+    if (i % 5 === 0) {
+      // parallel middle
+      const left = Array.from({ length: 1 + (i % 2) }, (_, j) => ({
+        id: `L${i}_${j}`,
+        name: `left${j}`,
+      }))
+      const right = Array.from({ length: 1 + (i % 3 === 0 ? 1 : 0) }, (_, j) => ({
+        id: `R${i}_${j}`,
+        name: `right${j}`,
+      }))
+      entries.push({
+        sourcePath: `synthetic/gen_par_${i}.ts`,
+        workflowName: `gen_par_${i}`,
+        graph: parallelGraph({
+          prefix: [{ id: `s${i}`, name: 'start' }],
+          branches: [left, right],
+          suffix: [{ id: `j${i}`, name: 'join' }],
+          groupId: `g${i}`,
+        }),
+        warnings: [],
+      })
+    } else {
+      const names = Array.from({ length: n }, (_, j) => ({
+        id: `s${i}_${j}`,
+        name: `step${j}`,
+      }))
+      // sprinkle a timer
+      if (i % 3 === 1 && n >= 3) {
+        names[Math.floor(n / 2)] = {
+          id: `t${i}`,
+          name: 'sleep',
+          kind: 'timer' as const,
+        } as any
+      }
+      entries.push({
+        sourcePath: `synthetic/gen_lin_${i}.ts`,
+        workflowName: `gen_lin_${i}`,
+        graph: linearGraph(names),
+        warnings: [],
+      })
+    }
+  }
+  return entries
+}
+
+/**
+ * Large-scale mutation evaluation (paper §12.2 order of magnitude).
+ * Target: tens of thousands of run-level verdicts, FN=0 on structural mutators.
+ */
+export function runLargeMutationStudy (opts: {
+  corpusSize?: number
+  includeCorpusEntries?: CorpusEntry[]
+} = {}): {
+    totals: Confusion
+    byMutation: MutationResult[]
+    pairs: number
+    sound: boolean
+  } {
+  const entries = [
+    ...(opts.includeCorpusEntries ?? []),
+    ...generateSyntheticCorpus(opts.corpusSize ?? 120),
+  ].filter(e => e.graph.sites.length > 0)
+
+  const totals: Confusion = { tp: 0, fp: 0, fn: 0, tn: 0 }
+  const byMutation: MutationResult[] = []
+  let pairs = 0
+
+  for (const mut of defaultMutators()) {
+    if (mut.name === 'demand-growth') continue
+    const r = evaluateMutation(entries, mut.apply, mut.name)
+    byMutation.push(r)
+    totals.tp += r.tp
+    totals.fp += r.fp
+    totals.fn += r.fn
+    totals.tn += r.tn
+    pairs += r.prefixes
+  }
+
+  return { totals, byMutation, pairs, sound: totals.fn === 0 }
+}

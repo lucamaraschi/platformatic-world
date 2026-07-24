@@ -3,6 +3,8 @@
 ## Deferred / do not forget
 
 - **[calib-persist] DONE** — migration `008`, `calibration-db.ts`, load onReady, write-through on POST. Keys: `fleet` + external app_id string.
+- **Gaps fill DONE** — demand-infer, resource fingerprints, large mutation study, CI `test:wur` step.
+- **Still not paper-perfect:** no full upstream Vercel workbench git corpus; demand inference is scanner-based not full TS typechecker AST.
 
 ## 2026-07-23 — Corpus harness
 

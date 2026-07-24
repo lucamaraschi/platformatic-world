@@ -12,6 +12,7 @@
  *   Promise.race/any  → race group
  */
 import type { ParallelGroup, Site, StepGraph } from '../types.ts'
+import { enrichGraphWithDemandInference } from './demand-infer.ts'
 
 export interface ExtractOptions {
   /** Module path for qualified names (e.g. workflows/e2e.ts). */
@@ -79,7 +80,11 @@ export function extractGraphsFromSource (
 
   for (const fn of functions) {
     if (!hasDirective(fn.body, 'use workflow')) continue
-    const graph = extractFromWorkflowBody(fn.body, fn.name, modulePath, qualified, warnings)
+    let graph = extractFromWorkflowBody(fn.body, fn.name, modulePath, qualified, warnings)
+    // §4.1 access-path demand inference on the workflow body
+    const enriched = enrichGraphWithDemandInference(fn.body, graph)
+    graph = enriched.graph
+    warnings.push(...enriched.inference.warnings)
     workflows.push({ name: fn.name, graph })
   }
 

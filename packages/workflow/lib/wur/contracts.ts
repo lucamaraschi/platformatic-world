@@ -13,6 +13,10 @@ export function validatePayload (
   demandFields: string[]
 ): { verdict: ContractVerdict, missing: string[] } {
   if (!demandFields.length) return { verdict: 'sat', missing: [] }
+  // Maximal demand from unk inference
+  if (demandFields.includes('*')) {
+    return { verdict: 'unk', missing: [] }
+  }
   const h = hydrateEventData(payload)
   if (h.kind === 'null') {
     return { verdict: 'vio', missing: [...demandFields] }

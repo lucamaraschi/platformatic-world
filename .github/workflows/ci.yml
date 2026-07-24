@@ -78,6 +78,12 @@ jobs:
       - name: Run tests
         run: pnpm test
 
+      # Explicit WUR fidelity gate (arXiv:2607.13617) — FN=0 structural suite
+      - name: Run WUR upgrade-risk tests
+        run: pnpm --filter @platformatic/workflow run test:wur
+        env:
+          DATABASE_URL: postgresql://wf:wf@localhost:5434/workflow
+
       - name: Build workflow service
         run: pnpm --filter @platformatic/workflow run build
 

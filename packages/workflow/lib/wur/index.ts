@@ -108,6 +108,8 @@ export {
   mixedWindowPenalty,
   estimateEventRate,
   channelInterfaceRisk,
+  extractResourceTouches,
+  buildResourceFingerprintEdges,
 } from './channels.ts'
 
 export {
@@ -128,6 +130,17 @@ export {
   extractWorkflowGraph,
 } from './static/ast-extract.ts'
 export type { ExtractOptions, ExtractResult } from './static/ast-extract.ts'
+
+export {
+  inferDemandsFromSource,
+  applyDemandsToGraph,
+  enrichGraphWithDemandInference,
+} from './static/demand-infer.ts'
+export type {
+  DemandInferenceResult,
+  InferredDemand,
+  DemandVerdict,
+} from './static/demand-infer.ts'
 
 export {
   CalibrationStore,
@@ -155,6 +168,8 @@ export {
   evaluateMutation,
   defaultMutators,
   syntheticCorpus,
+  generateSyntheticCorpus,
+  runLargeMutationStudy,
   prefixesOf,
 } from './corpus.ts'
 export type {

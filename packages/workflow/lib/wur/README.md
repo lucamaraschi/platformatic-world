@@ -81,6 +81,22 @@ const report = runCorpusReport(['e2e-v5/workflows', 'e2e-v4/workflows'])
 // report.sound === true  ⇔  FN=0 and self-diff clean
 ```
 
+## Demand inference
+
+Access-path inference (`static/demand-infer.ts`) scans workflow bodies for:
+
+- `const x = await step(); x.field` / `x?.field`
+- `const { a, b } = await step()` / `= x`
+- computed / Reflect / lodash.get / JSON.parse → **unk** maximal demand (`*`)
+
+Used automatically by `extractGraphsFromSource`.
+
+## Resource coupling (tier 2)
+
+`extractResourceTouches` / `buildResourceFingerprintEdges` couple runs that
+share tables, queues, topics, or explicit `resourceFingerprint` annotations
+when at least one side writes.
+
 ## Devalue hydration
 
 Step payloads stored as BYTEA with Workflow SDK framing (`devl` + devalue text)
