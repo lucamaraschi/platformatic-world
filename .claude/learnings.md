@@ -9,6 +9,14 @@
   1. Corpus pinned to paper commit `39673b7a381b029032525485e566f1663f549fa3`
   2. TS compiler AST demand (`ts-demand.ts`) preferred over scanner
   3. `realcorpus/` JSON artifacts (paper hand-translation constructors); regenerate via `pnpm -C packages/workflow run generate:realcorpus`
+- **CLI calibration feed DONE** (`c08d730`) — CI WF compare can call `wur ... --record-exposure [--incident]` with `DATABASE_URL` or `--service-url`; also `wur calibration record|show`
+
+## 2026-07-24 — CLI calibration for CI
+
+- Problem: CalibrationStore only learned when ops POSTed to the API; CI already runs WF compare offline.
+- Fix: `runWurCli` is async; `--record-exposure` maps annotations → change classes via `classesFromAnnotations`, then writes via Postgres (`recordReleaseOutcomePersistent`) or HTTP POST.
+- Env: `DATABASE_URL`, `PLT_WORLD_SERVICE_URL`, `PLT_WORLD_APP_ID`
+- Tests: `test/wur-cli-calibration.test.ts` (parse + DB write-through + incident + show)
 
 ## 2026-07-23 — Corpus harness
 
