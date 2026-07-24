@@ -1,5 +1,19 @@
 # Session learnings
 
+## Deferred / do not forget
+
+- **[calib-persist]** CalibrationStore is process-local. Add Postgres durability:
+  - migration table e.g. `workflow_wur_calibration (application_id, change_class, exposures, incidents, updated_at)`
+  - load into `defaultCalibrationStore` on plugin start
+  - write-through on `POST .../upgrade-risk/calibration` (and optional fleet-wide rows)
+  - multi-tenant: scope by `application_id`; single-tenant: one implicit app
+  - Also documented in `packages/workflow/lib/wur/README.md`
+
+## 2026-07-23 — Corpus harness
+
+- `lib/wur/corpus.ts` + `test/wur-corpus.test.ts`: e2e-v4/v5 extract, self-diff, mutators, FN=0
+- Not a byte-for-byte port of the paper's Vercel commit corpus; same *methodology* on in-repo sources
+
 ## 2026-07-23 — WUR residuals (CLI, AST, calibration, mutations)
 
 ### Added

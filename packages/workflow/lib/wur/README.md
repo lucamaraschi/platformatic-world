@@ -65,11 +65,21 @@ npx @platformatic/workflow wur --source-v1 old.ts --source-v2 new.ts --workflow 
 ## Fidelity tests
 
 ```bash
-pnpm -C packages/workflow exec node --test --test-concurrency=1 \
-  test/wur.test.ts test/wur-fidelity.test.ts test/wur-extract-cli.test.ts
+pnpm -C packages/workflow exec node --test --test-concurrency=1 test/wur*.test.ts
 ```
 
 Gate: **FN = 0** vs oracle on structural mutations (§12 soundness).
+
+### Corpus (`lib/wur/corpus.ts`)
+
+Runs extract → self-diff → mutators over `e2e-v4/workflows` + `e2e-v5/workflows`
+(paper §12-style stand-in for the Vercel workbench corpus):
+
+```ts
+import { runCorpusReport } from './corpus.ts'
+const report = runCorpusReport(['e2e-v5/workflows', 'e2e-v4/workflows'])
+// report.sound === true  ⇔  FN=0 and self-diff clean
+```
 
 ## Devalue hydration
 
@@ -97,6 +107,11 @@ GET /api/v1/apps/:appId/upgrade-risk/calibration
 ```
 
 Severity in scoring uses `CalibrationStore` posteriors (§6.4).
+
+**TODO (not yet):** calibration is **in-process only** and resets on service restart.
+Persist `CalibrationStore` to Postgres (migration + load on boot / write on
+`POST .../calibration`) so fleet severity survives deploys. Tracked as
+`calib-persist` in agent todos / `.claude/learnings.md`.
 
 ## Model limitations (§11)
 

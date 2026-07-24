@@ -142,6 +142,22 @@ export { expandDevalueFlat, dehydrateForTest } from './hydrate.ts'
 export { runWurCli, parseWurArgs } from './cli-wur.ts'
 
 export {
+  discoverWorkflowFiles,
+  loadCorpus,
+  runCorpusReport,
+  evaluateMutation,
+  defaultMutators,
+  syntheticCorpus,
+  prefixesOf,
+} from './corpus.ts'
+export type {
+  CorpusEntry,
+  CorpusReport,
+  Confusion,
+  MutationResult,
+} from './corpus.ts'
+
+export {
   latticeCompare,
   fieldsToSchema,
   coversDemand,
