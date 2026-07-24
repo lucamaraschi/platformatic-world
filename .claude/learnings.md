@@ -2,12 +2,7 @@
 
 ## Deferred / do not forget
 
-- **[calib-persist]** CalibrationStore is process-local. Add Postgres durability:
-  - migration table e.g. `workflow_wur_calibration (application_id, change_class, exposures, incidents, updated_at)`
-  - load into `defaultCalibrationStore` on plugin start
-  - write-through on `POST .../upgrade-risk/calibration` (and optional fleet-wide rows)
-  - multi-tenant: scope by `application_id`; single-tenant: one implicit app
-  - Also documented in `packages/workflow/lib/wur/README.md`
+- **[calib-persist] DONE** — migration `008`, `calibration-db.ts`, load onReady, write-through on POST. Keys: `fleet` + external app_id string.
 
 ## 2026-07-23 — Corpus harness
 

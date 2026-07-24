@@ -14,7 +14,6 @@ import {
   classesFromAnnotations,
   defaultCalibrationStore,
   hydrateEventData,
-  recordReleaseOutcome,
   type AnalyzeOptions,
   type ChangeClass,
   type ChangedSite,
@@ -22,6 +21,10 @@ import {
   type ProtocolRun,
   type StepGraph,
 } from '../lib/wur/index.ts'
+import {
+  loadCalibrationFromDb,
+  recordReleaseOutcomePersistent,
+} from '../lib/wur/calibration-db.ts'
 
 /**
  * Decode event_data BYTEA for WUR: keep Buffer so hydrate/devalue can run.
@@ -134,6 +137,17 @@ async function loadRuns (
 }
 
 async function wurPlugin (app: FastifyInstance): Promise<void> {
+  // Load durable calibration into the process store (survives restarts via PG)
+  app.addHook('onReady', async () => {
+    try {
+      await loadCalibrationFromDb(app.pg, defaultCalibrationStore)
+      app.log.info('WUR calibration loaded from database')
+    } catch (err) {
+      // Table may not exist yet mid-migration in some boot paths; log and continue
+      app.log.warn({ err }, 'WUR calibration load skipped')
+    }
+  })
+
   app.post('/api/v1/apps/:appId/upgrade-risk', async (request) => {
     const body = request.body as {
       g1?: StepGraph
@@ -243,19 +257,19 @@ async function wurPlugin (app: FastifyInstance): Promise<void> {
     }
 
     const n = Math.max(1, body.exposures ?? 1)
-    for (let i = 0; i < n; i++) {
-      recordReleaseOutcome({
-        appId: appIdStr,
-        changeClasses: classes,
-        incident: body.incident === true,
-        store: defaultCalibrationStore,
-      })
-    }
+    await recordReleaseOutcomePersistent({
+      pg: app.pg,
+      appIdStr,
+      changeClasses: classes,
+      incident: body.incident === true,
+      exposures: n,
+      store: defaultCalibrationStore,
+    })
 
     const posteriors = Object.fromEntries(
       classes.map(c => [c, defaultCalibrationStore.calibrate(c, appIdStr)])
     )
-    return { recorded: true, changeClasses: classes, posteriors }
+    return { recorded: true, changeClasses: classes, posteriors, durable: true }
   })
 
   app.get('/api/v1/apps/:appId/upgrade-risk/calibration', async (request) => {

@@ -108,10 +108,9 @@ GET /api/v1/apps/:appId/upgrade-risk/calibration
 
 Severity in scoring uses `CalibrationStore` posteriors (§6.4).
 
-**TODO (not yet):** calibration is **in-process only** and resets on service restart.
-Persist `CalibrationStore` to Postgres (migration + load on boot / write on
-`POST .../calibration`) so fleet severity survives deploys. Tracked as
-`calib-persist` in agent todos / `.claude/learnings.md`.
+**Durable:** table `workflow_wur_calibration` (migration `008`). Loaded on
+service ready into `defaultCalibrationStore`; `POST .../calibration` write-through
+updates both memory and Postgres (`application_key = 'fleet' | <app_id>`).
 
 ## Model limitations (§11)
 

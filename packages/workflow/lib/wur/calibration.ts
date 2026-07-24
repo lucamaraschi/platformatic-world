@@ -129,6 +129,20 @@ export class CalibrationStore {
     }
     return s
   }
+
+  /** Replace contents from another store (used after DB load). */
+  replaceFrom (other: CalibrationStore): void {
+    this.fleet = new Map(other.fleet)
+    this.apps = new Map(
+      [...other.apps.entries()].map(([k, v]) => [k, new Map(v)])
+    )
+  }
+
+  /** Clear all counts (tests). */
+  clear (): void {
+    this.fleet.clear()
+    this.apps.clear()
+  }
 }
 
 function clamp (x: number, lo: number, hi: number): number {

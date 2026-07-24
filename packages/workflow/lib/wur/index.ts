@@ -137,6 +137,13 @@ export {
 } from './calibration.ts'
 export type { ChangeClass, ClassRecord, ClassCalibration } from './calibration.ts'
 
+export {
+  loadCalibrationFromDb,
+  recordReleaseOutcomePersistent,
+  upsertCalibrationDelta,
+  FLEET_KEY,
+} from './calibration-db.ts'
+
 export { expandDevalueFlat, dehydrateForTest } from './hydrate.ts'
 
 export { runWurCli, parseWurArgs } from './cli-wur.ts'
