@@ -24,7 +24,7 @@ import {
   type ProtocolRun,
   type RunRisk,
   type StepGraph,
-} from '../lib/wur/index.ts'
+} from '../lib/index.ts'
 
 function ulidAt (seq: number): string {
   return `01ARZ3NDEKTSV4RRFFQ69G${String(seq).padStart(5, '0')}`

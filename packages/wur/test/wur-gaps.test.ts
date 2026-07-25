@@ -15,7 +15,7 @@ import {
   runLargeMutationStudy,
   validatePayload,
   type ProtocolRun,
-} from '../lib/wur/index.ts'
+} from '../lib/index.ts'
 
 describe('WUR demand inference (§4.1 access paths)', () => {
   it('infers member access fields from await bindings', () => {

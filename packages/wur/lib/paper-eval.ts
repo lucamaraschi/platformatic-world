@@ -31,7 +31,7 @@ export function vercelCorpusDirs (repoRoot?: string): string[] {
   // Prefer package-relative fixtures (works from monorepo root or package cwd)
   const local = join(__dirname, '../../test/fixtures/vercel-corpus')
   if (repoRoot) {
-    const base = join(repoRoot, 'packages/workflow/test/fixtures/vercel-corpus')
+    const base = join(repoRoot, 'packages/wur/test/fixtures/vercel-corpus')
     return [join(base, 'vitest'), join(base, 'cookbook'), join(base, 'example')]
   }
   return [join(local, 'vitest'), join(local, 'cookbook'), join(local, 'example')]
@@ -40,7 +40,7 @@ export function vercelCorpusDirs (repoRoot?: string): string[] {
 export function loadVercelCorpus (repoRoot?: string): CorpusEntry[] {
   // Prefer hand-translation artifacts (paper realcorpus) when present
   const corpusRoot = repoRoot
-    ? join(repoRoot, 'packages/workflow/test/fixtures/vercel-corpus')
+    ? join(repoRoot, 'packages/wur/test/fixtures/vercel-corpus')
     : join(__dirname, '../../test/fixtures/vercel-corpus')
   const arts = loadRealCorpusArtifacts(corpusRoot)
   if (arts.length > 0) {

@@ -6,8 +6,7 @@ import assert from 'node:assert/strict'
 import { writeFileSync, mkdtempSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import { parseWurArgs, runWurCli } from '../lib/wur/cli-wur.ts'
-import { FLEET_KEY } from '../lib/wur/calibration-db.ts'
+import { parseWurArgs, runWurCli, FLEET_KEY } from '@platformatic/wur'
 import { setupTest, teardownTest, type TestContext } from './helper.ts'
 
 describe('WUR CLI parse calibration flags', () => {

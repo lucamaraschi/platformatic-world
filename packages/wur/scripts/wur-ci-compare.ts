@@ -16,7 +16,7 @@
  *   REPO_ROOT                    — monorepo root (default: cwd / git root)
  *
  * Usage (from monorepo root):
- *   WUR_BASE_SHA=abc WUR_HEAD_SHA=def pnpm --filter @platformatic/workflow run ci:wur-compare
+ *   WUR_BASE_SHA=abc WUR_HEAD_SHA=def pnpm --filter @platformatic/wur run ci:compare
  */
 import { spawnSync } from 'node:child_process'
 import { mkdtempSync, writeFileSync, rmSync, mkdirSync, existsSync } from 'node:fs'
@@ -25,6 +25,7 @@ import { tmpdir } from 'node:os'
 import { fileURLToPath } from 'node:url'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
+/** Slim bin: `wur` args go straight to runWurCli (no `wur` subcommand prefix). */
 const CLI = join(__dirname, '..', 'cli.js')
 
 function env (k: string, fallback = ''): string {
@@ -100,7 +101,7 @@ interface CompareResult {
 }
 
 function runWur (args: string[]): { code: number, stdout: string, stderr: string } {
-  const r = spawnSync(process.execPath, [CLI, 'wur', ...args], {
+  const r = spawnSync(process.execPath, [CLI, ...args], {
     encoding: 'utf8',
     env: process.env,
   })

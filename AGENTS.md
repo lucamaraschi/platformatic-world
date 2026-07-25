@@ -32,10 +32,11 @@ pnpm test:e2e:vercel  # full Vercel-ported suite (~220s)
 
 ## Monorepo Layout
 
-pnpm workspace with three packages:
+pnpm workspace packages:
 
 - **`packages/workflow/`** (`@platformatic/workflow`) — Fastify 5 REST API. Owns storage, queue routing, deployment lifecycle. Multi-tenant with per-app isolation.
 - **`packages/world/`** (`@platformatic/world`) — Thin HTTP client (undici Pool) implementing the `@workflow/world` `World` interface.
+- **`packages/wur/`** (`@platformatic/wur`) — Slim Workflow Upgrade Risk CLI + library for CI (no Fastify). Service wires HTTP via `plugins/wur.ts`.
 - **`e2e-v5/`** — Next.js test app + end-to-end test suites on `workflow@5.0.0-beta.x` (matches Vercel's main-branch CI).
 - **`e2e-v4/`** — Same workbench pattern, pinned to `workflow@4.2.x` stable. Guards the v4 runtime path.
 
@@ -63,7 +64,7 @@ Fastify 5 app built with `@fastify/autoload` loading plugins from `plugins/` dir
 
 Key components:
 - **`plugins/`** — One file per API domain (events, runs, steps, hooks, streams, queue, encryption, handlers, draining, versions, dead-letters, quotas, metrics, health, apps, wur)
-- **`lib/wur/`** — Workflow Upgrade Risk (arXiv:2607.13617) full pipeline: SP graphs + trace ≡_I, matching μ, demand lattice, R_b/R_f/WUR + MC CI, coupling min-cut, oracle/fidelity tests. See `lib/wur/README.md`.
+- **`plugins/wur.ts`** — HTTP upgrade-risk + calibration endpoints; imports `@platformatic/wur` (logic lives in `packages/wur/`)
 - **`lib/db.ts`** — pg.Pool + Postgrator migrations. The `decorateDb()` function is called on the root app (not inside a plugin) so `app.pg` is available everywhere
 - **`lib/auth/`** — Auth plugin using `Symbol.for('skip-override')` to break Fastify encapsulation, making its `onRequest` hook apply to sibling plugins
 - **`queue/`** — Queue router (deployment-aware routing), HTTP dispatcher, background poller (deferred delivery, retries, orphan detection)

@@ -9,7 +9,7 @@ import {
   loadCalibrationFromDb,
   recordReleaseOutcomePersistent,
   FLEET_KEY,
-} from '../lib/wur/index.ts'
+} from '@platformatic/wur'
 import { setupTest, teardownTest, type TestContext } from './helper.ts'
 
 describe('WUR calibration Postgres durability', () => {

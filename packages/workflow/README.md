@@ -96,7 +96,9 @@ Request body (app-scoped):
 }
 ```
 
-Response partitions each run into **migrate** / **review** / **pin** with per-run `backwardRisk`, `forwardRisk`, and `wur` scores. Pure library: `import { analyzeUpgradeRisk } from '@platformatic/workflow/lib/wur'`.
+Response partitions each run into **migrate** / **review** / **pin** with per-run `backwardRisk`, `forwardRisk`, and `wur` scores.
+
+Pure library / CI CLI (slim package, no Fastify): `import { analyzeUpgradeRisk } from '@platformatic/wur'` or `npx @platformatic/wur --help`.
 
 ### Admin (requires admin service account)
 

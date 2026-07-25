@@ -25,6 +25,14 @@
 - Product apps: set `WUR_PATHS` to their workflow dirs; use prod DB only for `--incident`, not ephemeral CI Postgres
 - Smoke always self-diffs `greet.ts` so the job exercises CLI even when no workflow files changed
 
+## 2026-07-24 — Extract @platformatic/wur (Option A)
+
+- New package `packages/wur` — slim CI CLI + library; **deps only `devalue`**; optional peers `pg`, `typescript`
+- Bins: `wur`, `platformatic-wur` → `cli.js` → `lib/cli-wur.ts` (Node ≥22 type strip; ships `.ts` in package)
+- `@platformatic/workflow` depends on `workspace:*`; `plugins/wur.ts` + `cli.js wur` forwarder only
+- Unit tests + fixtures under `packages/wur`; service integration stays in workflow (`wur-api`, calibration, devalue+API)
+- Product CI: `npm i -D @platformatic/wur` + `--service-url` — do **not** install full workflow package
+
 ## 2026-07-23 — Corpus harness
 
 - `lib/wur/corpus.ts` + `test/wur-corpus.test.ts`: e2e-v4/v5 extract, self-diff, mutators, FN=0

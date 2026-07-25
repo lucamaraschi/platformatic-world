@@ -49,65 +49,44 @@ const result = analyzeUpgradeRisk({
 - `POST /api/v1/apps/:appId/upgrade-risk` — DB telemetry + graphs
 - `POST /api/v1/upgrade-risk/analyze` — pure (inline history/inFlight)
 
-## CLI
+## CLI (slim package)
 
 ```bash
-# Extract step graph from workflow source
-npx @platformatic/workflow wur --extract workflows/order.ts --workflow orderFlow --out g1.json
+# Prefer the slim install for CI — does not pull the Fastify service
+npx @platformatic/wur --extract workflows/order.ts --workflow orderFlow --out g1.json
+npx @platformatic/wur --g1 g1.json --g2 g2.json --history h.json --inflight i.json --json
+npx @platformatic/wur --source-v1 old.ts --source-v2 new.ts --workflow orderFlow
 
-# Score from graphs + optional telemetry
-npx @platformatic/workflow wur --g1 g1.json --g2 g2.json --history h.json --inflight i.json --json
+# CI: record exposure via HTTP to a running workflow service (product path)
+npx @platformatic/wur --source-v1 old.ts --source-v2 new.ts \
+  --app-id my-app --record-exposure --service-url http://workflow:3042
 
-# Diff two source versions (extract + analyze)
-npx @platformatic/workflow wur --source-v1 old.ts --source-v2 new.ts --workflow orderFlow
-
-# CI: compare + record exposure so severity learns from every release
+# Optional: direct Postgres (requires peer dep `pg`)
 DATABASE_URL=postgresql://... \
-npx @platformatic/workflow wur --source-v1 old.ts --source-v2 new.ts \
+npx @platformatic/wur --source-v1 old.ts --source-v2 new.ts \
   --app-id my-app --record-exposure
 
-# After a bad release / failed canary, mark incident for the same classes
-DATABASE_URL=postgresql://... \
-npx @platformatic/workflow wur --source-v1 old.ts --source-v2 new.ts \
-  --app-id my-app --record-exposure --incident
+# After a bad release
+npx @platformatic/wur ... --record-exposure --incident --service-url ...
 
-# Or POST to a running service instead of direct DB
-npx @platformatic/workflow wur ... --record-exposure \
-  --service-url http://workflow:3042 --app-id my-app
-
-# Explicit calibration helpers
-npx @platformatic/workflow wur calibration record --app-id my-app --class insert-step
-npx @platformatic/workflow wur calibration show --app-id my-app
+npx @platformatic/wur calibration record --app-id my-app --class insert-step --service-url ...
+npx @platformatic/wur calibration show --app-id my-app --service-url ...
 ```
 
-`--record-exposure` infers change classes from the analysis annotations and
-writes them to Postgres (`DATABASE_URL`) or the service API (`--service-url`).
-That is the CI feedback loop: every compare is an exposure; add `--incident`
-only when the release was bad.
+(`platformatic-workflow wur …` still forwards to this package for convenience.)
 
 ## CI recipe (base vs head)
 
-This monorepo runs `pnpm --filter @platformatic/workflow run ci:wur-compare`
-in GitHub Actions: it self-diff smokes `e2e-v5/workflows/greet.ts`, then for
-every changed `e2e-*/workflows/*.ts` between `WUR_BASE_SHA` and `WUR_HEAD_SHA`
-runs `wur --source-v1 … --source-v2 … --record-exposure` against CI Postgres.
+This monorepo runs `pnpm --filter @platformatic/wur run ci:compare`
+in GitHub Actions.
 
 ### Local dry-run
 
 ```bash
-# Smoke only
-pnpm --filter @platformatic/workflow run ci:wur-compare
+pnpm --filter @platformatic/wur run ci:compare
 
-# Compare two commits (from monorepo root)
-WUR_BASE_SHA=$(git merge-base HEAD origin/main) \
-WUR_HEAD_SHA=HEAD \
-WUR_RECORD=0 \
-  pnpm --filter @platformatic/workflow run ci:wur-compare
-
-# With durable calibration (needs Postgres)
-DATABASE_URL=postgresql://wf:wf@localhost:5434/workflow \
-WUR_BASE_SHA=origin/main WUR_HEAD_SHA=HEAD WUR_RECORD=1 WUR_APP_ID=my-app \
-  pnpm --filter @platformatic/workflow run ci:wur-compare
+WUR_BASE_SHA=$(git merge-base HEAD origin/main) WUR_HEAD_SHA=HEAD WUR_RECORD=0 \
+  pnpm --filter @platformatic/wur run ci:compare
 ```
 
 ### Drop-in GitHub Actions job (product apps)
@@ -115,78 +94,42 @@ WUR_BASE_SHA=origin/main WUR_HEAD_SHA=HEAD WUR_RECORD=1 WUR_APP_ID=my-app \
 ```yaml
 wur-compare:
   runs-on: ubuntu-latest
-  services:
-    postgres:
-      image: postgres:18
-      env:
-        POSTGRES_USER: wf
-        POSTGRES_PASSWORD: wf
-        POSTGRES_DB: workflow
-      ports: ['5434:5432']
-      options: >-
-        --health-cmd "pg_isready -U wf -d workflow"
-        --health-interval 2s
-        --health-timeout 5s
-        --health-retries 10
   steps:
     - uses: actions/checkout@v4
-      with:
-        fetch-depth: 0
+      with: { fetch-depth: 0 }
     - uses: actions/setup-node@v7
-      with:
-        node-version: 24
-    - uses: pnpm/action-setup@v6
-    - run: pnpm install
-    - name: WUR compare + record exposure
-      run: pnpm --filter @platformatic/workflow run ci:wur-compare
-      # or: npx @platformatic/workflow wur --source-v1 …  (single file)
+      with: { node-version: 24 }
+    - run: npm i -D @platformatic/wur
+    - name: WUR compare + record exposure via service
+      run: npx wur --source-v1 "$OLD" --source-v2 "$NEW" --app-id "$APP" \
+             --record-exposure --service-url "$PLT_WORLD_SERVICE_URL" --json
+      # Or multi-file helper if you vendor the monorepo script:
+      # npx / path to ci:compare with WUR_SERVICE_URL set
       env:
-        DATABASE_URL: postgresql://wf:wf@localhost:5434/workflow
-        WUR_APP_ID: ${{ github.event.repository.name }}
-        WUR_RECORD: '1'
-        WUR_PATHS: workflows src/workflows   # your tree
-        WUR_BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
-        WUR_HEAD_SHA: ${{ github.sha }}
-        # Optional hard gate once calibration has data:
-        # WUR_GATE: '1'
-        # WUR_MAX: '0.5'
+        PLT_WORLD_SERVICE_URL: ${{ secrets.WORKFLOW_SERVICE_URL }}
 ```
 
-**Ops after a bad release:** re-run the same compare with `--incident`
-(or `wur calibration record --class … --incident`) against the *production*
-`DATABASE_URL` / service — not the ephemeral CI database.
-
-Env reference for `scripts/wur-ci-compare.ts`:
-
-| Env | Meaning |
-|-----|---------|
-| `WUR_BASE_SHA` / `WUR_HEAD_SHA` | Git range to diff |
-| `WUR_PATHS` | Space-separated path prefixes |
-| `WUR_APP_ID` | Calibration key |
-| `WUR_RECORD=1` | Pass `--record-exposure` |
-| `DATABASE_URL` / `WUR_SERVICE_URL` | Persistence target |
-| `WUR_GATE=1` / `WUR_MAX` | Fail if pin>0 or wur > max |
-| `WUR_SMOKE=1` | Always run greet self-diff |
+Prefer **`--service-url`** in product CI (no DB credentials). Mark `--incident`
+only against the production service after a bad release.
 
 ## Fidelity tests
 
 ```bash
-pnpm -C packages/workflow exec node --test --test-concurrency=1 test/wur*.test.ts
+pnpm --filter @platformatic/wur test
 ```
 
 Gate: **FN = 0** vs oracle on structural mutations (§12 soundness).
 
-### Corpus (`lib/wur/corpus.ts`, `lib/wur/paper-eval.ts`)
+### Corpus (`lib/corpus.ts`, `lib/paper-eval.ts`)
 
 **Vercel workbench corpus** (paper §12.3) vendored under
-`test/fixtures/vercel-corpus/` at exact commit **`39673b7a…`**
+`packages/wur/test/fixtures/vercel-corpus/` at exact commit **`39673b7a…`**
 (vitest + cookbook + example; Apache-2.0; see `PROVENANCE.md` / `SOURCE_COMMIT`).
 
-**realcorpus/** — reviewable graph JSON artifacts (paper’s hand-translation
-constructors), regenerate with:
+**realcorpus/** — reviewable graph JSON artifacts, regenerate with:
 
 ```bash
-pnpm -C packages/workflow run generate:realcorpus
+pnpm --filter @platformatic/wur run generate:realcorpus
 ```
 
 Demand inference prefers the **TypeScript compiler AST** (`ts-demand.ts`) when

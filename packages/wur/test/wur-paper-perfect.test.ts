@@ -12,7 +12,7 @@ import {
   workedExamplePartitions,
   vercelCorpusDirs,
   paperReferenceGraph,
-} from '../lib/wur/paper-eval.ts'
+} from '../lib/paper-eval.ts'
 import {
   extractGraphsFromSource,
   inferDemandsFromSource,
@@ -20,7 +20,7 @@ import {
   isTsDemandAvailable,
   loadRealCorpusArtifacts,
   topologicalOrder,
-} from '../lib/wur/index.ts'
+} from '../lib/index.ts'
 import { readFileSync, readdirSync, existsSync } from 'node:fs'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
@@ -116,7 +116,7 @@ describe('Paper §12.3 Vercel workbench corpus', () => {
   it('self-extract from a cookbook saga source succeeds', () => {
     const saga = join(
       repoRoot,
-      'packages/workflow/test/fixtures/vercel-corpus/cookbook/saga.ts'
+      'packages/wur/test/fixtures/vercel-corpus/cookbook/saga.ts'
     )
     let src: string
     try {
@@ -187,7 +187,7 @@ describe('Paper demand inference depth', () => {
 
 describe('Paper realcorpus artifacts', () => {
   it('loads hand-translation JSON keyed by source path', () => {
-    const root = join(repoRoot, 'packages/workflow/test/fixtures/vercel-corpus')
+    const root = join(repoRoot, 'packages/wur/test/fixtures/vercel-corpus')
     assert.ok(existsSync(join(root, 'SOURCE_COMMIT')))
     const commit = readFileSync(join(root, 'SOURCE_COMMIT'), 'utf8').trim()
     assert.ok(commit.startsWith('39673b7'), `expected paper commit 39673b7, got ${commit}`)

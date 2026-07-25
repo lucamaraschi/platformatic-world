@@ -20,7 +20,7 @@ import {
   parseWurArgs,
   runWurCli,
   type StepGraph,
-} from '../lib/wur/index.ts'
+} from '../lib/index.ts'
 
 const SAMPLE = `
 import { sleep, createWebhook } from 'workflow'
@@ -182,13 +182,13 @@ describe('WUR CLI parse + extract', () => {
     assert.equal(a.json, true)
   })
 
-  it('runWurCli extract writes manifest', () => {
+  it('runWurCli extract writes manifest', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'wur-'))
     try {
       const src = join(dir, 'wf.ts')
       const out = join(dir, 'g.json')
       writeFileSync(src, SAMPLE)
-      const code = runWurCli(['--extract', src, '--workflow', 'orderFlow', '--out', out])
+      const code = await runWurCli(['--extract', src, '--workflow', 'orderFlow', '--out', out])
       assert.equal(code, 0)
       const g = JSON.parse(readFileSync(out, 'utf8'))
       assert.ok(Array.isArray(g.sites))

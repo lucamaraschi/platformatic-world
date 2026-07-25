@@ -14,17 +14,15 @@ import {
   classesFromAnnotations,
   defaultCalibrationStore,
   hydrateEventData,
+  loadCalibrationFromDb,
+  recordReleaseOutcomePersistent,
   type AnalyzeOptions,
   type ChangeClass,
   type ChangedSite,
   type ProtocolEvent,
   type ProtocolRun,
   type StepGraph,
-} from '../lib/wur/index.ts'
-import {
-  loadCalibrationFromDb,
-  recordReleaseOutcomePersistent,
-} from '../lib/wur/calibration-db.ts'
+} from '@platformatic/wur'
 
 /**
  * Decode event_data BYTEA for WUR: keep Buffer so hydrate/devalue can run.

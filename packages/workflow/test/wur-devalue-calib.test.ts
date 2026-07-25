@@ -14,7 +14,7 @@ import {
   recordReleaseOutcome,
   CalibrationStore,
   validatePayload,
-} from '../lib/wur/index.ts'
+} from '@platformatic/wur'
 import { setupTest, teardownTest, type TestContext } from './helper.ts'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))

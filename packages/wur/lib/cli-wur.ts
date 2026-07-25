@@ -1,23 +1,18 @@
 /**
  * WUR CLI — score upgrade risk + record calibration from CI.
  *
- * Analyze (typical CI):
- *   platformatic-workflow wur --source-v1 old.ts --source-v2 new.ts \
- *     --app-id my-app --record-exposure
- *   # optional: --incident  (mark this release as a bad outcome)
+ * Slim package: `npx @platformatic/wur` / `wur` (no Fastify service).
  *
- * Explicit calibration:
- *   platformatic-workflow wur calibration record \
- *     --app-id my-app --class insert-step [--incident]
- *   platformatic-workflow wur calibration show --app-id my-app
+ * Analyze (typical CI):
+ *   npx @platformatic/wur --source-v1 old.ts --source-v2 new.ts \
+ *     --app-id my-app --record-exposure --service-url http://workflow:3042
  *
  * Persistence:
- *   DATABASE_URL=postgresql://...   (direct Postgres write-through)
- *   or --service-url http://localhost:3042  (HTTP to workflow service)
+ *   --service-url …     HTTP to workflow service (preferred for product CI)
+ *   DATABASE_URL=…      direct Postgres (optional peer dep `pg`)
  */
 import { readFileSync, writeFileSync } from 'node:fs'
 import { resolve } from 'node:path'
-import pg from 'pg'
 import { analyzeUpgradeRisk } from './analyze.ts'
 import {
   classesFromAnnotations,
@@ -124,32 +119,47 @@ export function parseWurArgs (argv: string[]): WurCliArgs {
 }
 
 function printHelp (): void {
-  console.error(`WUR CLI (arXiv:2607.13617) — upgrade risk + calibration for CI
+  console.error(`@platformatic/wur (arXiv:2607.13617) — upgrade risk + calibration for CI
 
 Analyze workflows (typical CI step):
-  platformatic-workflow wur --source-v1 old.ts --source-v2 new.ts \\
-    --app-id my-app --record-exposure
-  platformatic-workflow wur --g1 g1.json --g2 g2.json \\
+  npx @platformatic/wur --source-v1 old.ts --source-v2 new.ts \\
+    --app-id my-app --record-exposure --service-url http://workflow:3042
+  npx @platformatic/wur --g1 g1.json --g2 g2.json \\
     --history h.json --inflight i.json --record-exposure --json
 
   # After a bad deploy / failed canary, re-run with:
-  platformatic-workflow wur ... --record-exposure --incident
+  npx @platformatic/wur ... --record-exposure --incident
 
 Extract graphs:
-  platformatic-workflow wur --extract workflow.ts [--workflow name] [--out g.json]
+  npx @platformatic/wur --extract workflow.ts [--workflow name] [--out g.json]
 
 Calibration (explicit):
-  platformatic-workflow wur calibration record --app-id my-app \\
+  npx @platformatic/wur calibration record --app-id my-app \\
     --class insert-step,demand-growth [--incident]
-  platformatic-workflow wur calibration show --app-id my-app
+  npx @platformatic/wur calibration show --app-id my-app
 
 Persistence (pick one):
-  DATABASE_URL=postgresql://...          write-through to Postgres
-  --service-url http://host:3042         POST to workflow service API
+  --service-url http://host:3042         POST to workflow service (product CI)
+  DATABASE_URL=postgresql://...          write-through to Postgres (optional peer: pg)
   (in-memory only if neither is set — prints a warning)
 
 Env aliases: PLT_WORLD_SERVICE_URL, PLT_WORLD_APP_ID, DATABASE_URL
 `)
+}
+
+/** Optional peer `pg` — only required for DATABASE_URL write-through. */
+async function createPgPool (connectionString: string) {
+  let mod: typeof import('pg')
+  try {
+    mod = await import('pg')
+  } catch {
+    throw new Error(
+      'DATABASE_URL persistence requires the optional peer dependency `pg`. ' +
+      'Install it (`npm i pg`) or use --service-url instead.'
+    )
+  }
+  const Pool = mod.default?.Pool ?? mod.Pool
+  return new Pool({ connectionString })
 }
 
 function loadGraph (path: string): StepGraph {
@@ -192,7 +202,7 @@ async function recordCalibration (opts: {
   }
 
   if (mode === 'db') {
-    const pool = new pg.Pool({ connectionString: args.databaseUrl })
+    const pool = await createPgPool(args.databaseUrl!)
     try {
       await recordReleaseOutcomePersistent({
         pg: pool,
@@ -255,7 +265,7 @@ async function runCalibrationShow (args: WurCliArgs): Promise<number> {
   }
 
   if (mode === 'db') {
-    const pool = new pg.Pool({ connectionString: args.databaseUrl })
+    const pool = await createPgPool(args.databaseUrl!)
     try {
       await loadCalibrationFromDb(pool, defaultCalibrationStore)
     } finally {

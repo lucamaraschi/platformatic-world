@@ -103,6 +103,9 @@ importers:
       '@platformatic/service':
         specifier: ^3.40.0
         version: 3.62.2
+      '@platformatic/wur':
+        specifier: workspace:*
+        version: link:../wur
       cbor-x:
         specifier: 1.6.4
         version: 1.6.4
@@ -178,6 +181,25 @@ importers:
       '@workflow/world':
         specifier: 4.2.1
         version: 4.2.1
+      typescript:
+        specifier: ^6.0.0
+        version: 6.0.3
+
+  packages/wur:
+    dependencies:
+      devalue:
+        specifier: ^5.8.1
+        version: 5.8.1
+    devDependencies:
+      '@types/node':
+        specifier: ^24.0.0
+        version: 24.13.3
+      '@types/pg':
+        specifier: ^8.15.4
+        version: 8.20.0
+      pg:
+        specifier: ^8.16.0
+        version: 8.22.0
       typescript:
         specifier: ^6.0.0
         version: 6.0.3

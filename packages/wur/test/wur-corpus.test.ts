@@ -13,8 +13,8 @@ import {
   evaluateMutation,
   defaultMutators,
   prefixesOf,
-} from '../lib/wur/corpus.ts'
-import { matchGraphs, isPrefixValid, oracleUnsafe } from '../lib/wur/index.ts'
+} from '../lib/corpus.ts'
+import { matchGraphs, isPrefixValid, oracleUnsafe } from '../lib/index.ts'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const repoRoot = join(__dirname, '../../..')

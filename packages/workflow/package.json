@@ -22,11 +22,10 @@
     "dev": "wattpm dev -c watt-dev.json",
     "test": "node --test --test-concurrency=1 test/*.test.ts",
     "test:wur": "node --test --test-concurrency=1 test/wur*.test.ts",
-    "ci:wur-compare": "node scripts/wur-ci-compare.ts",
-    "generate:realcorpus": "node --experimental-strip-types scripts/generate-realcorpus.ts",
     "lint": "eslint"
   },
   "dependencies": {
+    "@platformatic/wur": "workspace:*",
     "@fastify/autoload": "^6.0.3",
     "@fastify/error": "^4.1.0",
     "@platformatic/leader": "^0.3.0",

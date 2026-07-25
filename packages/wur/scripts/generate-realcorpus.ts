@@ -3,11 +3,11 @@
  * Generate paper §12.3 realcorpus JSON artifacts from vendored sources.
  *
  * Usage:
- *   node --experimental-strip-types packages/workflow/scripts/generate-realcorpus.ts
+ *   pnpm --filter @platformatic/wur run generate:realcorpus
  */
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { generateRealCorpusArtifacts } from '../lib/wur/static/realcorpus.ts'
+import { generateRealCorpusArtifacts } from '../lib/static/realcorpus.ts'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const corpusRoot = join(__dirname, '../test/fixtures/vercel-corpus')
