@@ -1,0 +1,52 @@
+{
+  "sourcePath": "cookbook/saga.ts",
+  "workflowName": "sagaWorkflow",
+  "paperCommit": "39673b7a381b029032525485e566f1663f549fa3",
+  "translationNotes": [
+    "use step call → step site (module-qualified optional)",
+    "sleep() → timer site",
+    "createWebhook/createHook + await → hook site",
+    "Promise.all → join-observed parallel group (source branch order is identity)",
+    "Promise.race/any → race group (no independent pairs)",
+    "if/else on step results → branch predicates when present",
+    "demand fields via access-path inference on consumer slices (TS AST preferred)"
+  ],
+  "graph": {
+    "version": 2,
+    "modulePath": "cookbook/saga.ts",
+    "sites": [
+      {
+        "id": "reserveInventory",
+        "name": "reserveInventory",
+        "kind": "step",
+        "qualifiedName": "reserveInventory"
+      },
+      {
+        "id": "chargePayment",
+        "name": "chargePayment",
+        "kind": "step",
+        "qualifiedName": "chargePayment"
+      },
+      {
+        "id": "provisionAccess",
+        "name": "provisionAccess",
+        "kind": "step",
+        "qualifiedName": "provisionAccess"
+      }
+    ],
+    "edges": [
+      {
+        "from": null,
+        "to": "reserveInventory"
+      },
+      {
+        "from": "reserveInventory",
+        "to": "chargePayment"
+      },
+      {
+        "from": "chargePayment",
+        "to": "provisionAccess"
+      }
+    ]
+  }
+}

@@ -1,0 +1,63 @@
+{
+  "name": "@platformatic/wur",
+  "version": "0.12.0",
+  "description": "Workflow Upgrade Risk (WUR) — slim CLI and library for CI (arXiv:2607.13617). No Fastify service runtime.",
+  "type": "module",
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "bin": {
+    "wur": "./cli.js",
+    "platformatic-wur": "./cli.js"
+  },
+  "exports": {
+    ".": "./lib/index.ts",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "cli.js",
+    "lib",
+    "README.md",
+    "GUIDE.md"
+  ],
+  "scripts": {
+    "test": "node --test --test-concurrency=1 test/*.test.ts",
+    "ci:compare": "node scripts/wur-ci-compare.ts",
+    "generate:realcorpus": "node --experimental-strip-types scripts/generate-realcorpus.ts",
+    "lint": "eslint"
+  },
+  "dependencies": {
+    "devalue": "^5.8.1"
+  },
+  "peerDependencies": {
+    "pg": "^8.16.0",
+    "typescript": ">=5.0.0"
+  },
+  "peerDependenciesMeta": {
+    "pg": {
+      "optional": true
+    },
+    "typescript": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "@types/pg": "^8.15.4",
+    "pg": "^8.16.0",
+    "typescript": "^6.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/platformatic/platformatic-world.git",
+    "directory": "packages/wur"
+  },
+  "license": "Apache-2.0",
+  "keywords": [
+    "workflow",
+    "upgrade-risk",
+    "wur",
+    "durable-execution",
+    "ci"
+  ]
+}

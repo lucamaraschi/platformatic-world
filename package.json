@@ -8,7 +8,8 @@
   "scripts": {
     "build": "pnpm -C packages/world build",
     "pretest": "pnpm run build",
-    "test": "pnpm --filter '@platformatic/world' --filter '@platformatic/workflow' --filter '@platformatic/workflow-fastify' test",
+    "test": "pnpm --filter '@platformatic/world' --filter '@platformatic/workflow' --filter '@platformatic/workflow-fastify' --filter '@platformatic/wur' test",
+    "test:wur": "pnpm --filter @platformatic/wur test && pnpm --filter @platformatic/workflow run test:wur",
     "lint": "eslint",
     "test:e2e:v5": "pnpm -C e2e-v5 test",
     "test:e2e:v4": "pnpm -C e2e-v4 test",
