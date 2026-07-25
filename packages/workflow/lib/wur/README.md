@@ -85,6 +85,89 @@ writes them to Postgres (`DATABASE_URL`) or the service API (`--service-url`).
 That is the CI feedback loop: every compare is an exposure; add `--incident`
 only when the release was bad.
 
+## CI recipe (base vs head)
+
+This monorepo runs `pnpm --filter @platformatic/workflow run ci:wur-compare`
+in GitHub Actions: it self-diff smokes `e2e-v5/workflows/greet.ts`, then for
+every changed `e2e-*/workflows/*.ts` between `WUR_BASE_SHA` and `WUR_HEAD_SHA`
+runs `wur --source-v1 … --source-v2 … --record-exposure` against CI Postgres.
+
+### Local dry-run
+
+```bash
+# Smoke only
+pnpm --filter @platformatic/workflow run ci:wur-compare
+
+# Compare two commits (from monorepo root)
+WUR_BASE_SHA=$(git merge-base HEAD origin/main) \
+WUR_HEAD_SHA=HEAD \
+WUR_RECORD=0 \
+  pnpm --filter @platformatic/workflow run ci:wur-compare
+
+# With durable calibration (needs Postgres)
+DATABASE_URL=postgresql://wf:wf@localhost:5434/workflow \
+WUR_BASE_SHA=origin/main WUR_HEAD_SHA=HEAD WUR_RECORD=1 WUR_APP_ID=my-app \
+  pnpm --filter @platformatic/workflow run ci:wur-compare
+```
+
+### Drop-in GitHub Actions job (product apps)
+
+```yaml
+wur-compare:
+  runs-on: ubuntu-latest
+  services:
+    postgres:
+      image: postgres:18
+      env:
+        POSTGRES_USER: wf
+        POSTGRES_PASSWORD: wf
+        POSTGRES_DB: workflow
+      ports: ['5434:5432']
+      options: >-
+        --health-cmd "pg_isready -U wf -d workflow"
+        --health-interval 2s
+        --health-timeout 5s
+        --health-retries 10
+  steps:
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+    - uses: actions/setup-node@v7
+      with:
+        node-version: 24
+    - uses: pnpm/action-setup@v6
+    - run: pnpm install
+    - name: WUR compare + record exposure
+      run: pnpm --filter @platformatic/workflow run ci:wur-compare
+      # or: npx @platformatic/workflow wur --source-v1 …  (single file)
+      env:
+        DATABASE_URL: postgresql://wf:wf@localhost:5434/workflow
+        WUR_APP_ID: ${{ github.event.repository.name }}
+        WUR_RECORD: '1'
+        WUR_PATHS: workflows src/workflows   # your tree
+        WUR_BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+        WUR_HEAD_SHA: ${{ github.sha }}
+        # Optional hard gate once calibration has data:
+        # WUR_GATE: '1'
+        # WUR_MAX: '0.5'
+```
+
+**Ops after a bad release:** re-run the same compare with `--incident`
+(or `wur calibration record --class … --incident`) against the *production*
+`DATABASE_URL` / service — not the ephemeral CI database.
+
+Env reference for `scripts/wur-ci-compare.ts`:
+
+| Env | Meaning |
+|-----|---------|
+| `WUR_BASE_SHA` / `WUR_HEAD_SHA` | Git range to diff |
+| `WUR_PATHS` | Space-separated path prefixes |
+| `WUR_APP_ID` | Calibration key |
+| `WUR_RECORD=1` | Pass `--record-exposure` |
+| `DATABASE_URL` / `WUR_SERVICE_URL` | Persistence target |
+| `WUR_GATE=1` / `WUR_MAX` | Fail if pin>0 or wur > max |
+| `WUR_SMOKE=1` | Always run greet self-diff |
+
 ## Fidelity tests
 
 ```bash
