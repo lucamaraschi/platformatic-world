@@ -4,6 +4,8 @@
 
 This package does **not** include the workflow orchestration service. Install it in product CI without pulling Fastify, watt, or `@platformatic/workflow`.
 
+**Start here:** **[GUIDE.md](./GUIDE.md)** — operator/dev flow, functional diagrams (Mermaid), CI recipe, decision playbook.
+
 | Package | Role |
 |---------|------|
 | **`@platformatic/wur`** (this) | Score V₁→V₂ upgrade risk; optional calibration feed |

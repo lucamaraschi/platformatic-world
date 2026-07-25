@@ -3,6 +3,8 @@
 Telemetry-driven model for quantifying the risk of upgrading in-flight durable
 workflow runs from version V₁ to V₂. **No dry-run, sandbox, or shadow execution.**
 
+**Operator / CI guide (diagrams):** see **[../GUIDE.md](../GUIDE.md)**.
+
 ## Paper map
 
 | Paper | Module |
