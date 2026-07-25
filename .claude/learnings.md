@@ -18,6 +18,13 @@
 - Env: `DATABASE_URL`, `PLT_WORLD_SERVICE_URL`, `PLT_WORLD_APP_ID`
 - Tests: `test/wur-cli-calibration.test.ts` (parse + DB write-through + incident + show)
 
+## 2026-07-24 — CI compare recipe
+
+- `packages/workflow/scripts/wur-ci-compare.ts` + `pnpm … run ci:wur-compare`
+- GHA step in `ci.yml` test job: `fetch-depth: 0`, `WUR_BASE_SHA`/`WUR_HEAD_SHA` from PR base or `github.event.before`, paths `e2e-v5/workflows e2e-v4/workflows`, `WUR_RECORD=1`, soft gate (`WUR_GATE=0`)
+- Product apps: set `WUR_PATHS` to their workflow dirs; use prod DB only for `--incident`, not ephemeral CI Postgres
+- Smoke always self-diffs `greet.ts` so the job exercises CLI even when no workflow files changed
+
 ## 2026-07-23 — Corpus harness
 
 - `lib/wur/corpus.ts` + `test/wur-corpus.test.ts`: e2e-v4/v5 extract, self-diff, mutators, FN=0
